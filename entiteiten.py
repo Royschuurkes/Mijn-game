@@ -100,7 +100,7 @@ class Speler:
         if self.sta_delay > 0 or blok:
             if not blok: self.sta_delay -= 1
         elif self.sta < self.msta:
-            self.sta = min(self.msta, self.sta + STAMINA_REGEN)
+            self.sta = min(self.msta, self.sta + (self.msta * STAMINA_REGEN_PCT / FPS))
 
         return in_struik
 
@@ -217,9 +217,10 @@ class Vijand:
             if dist < bereik and self.acd <= 0:
                 self.anim = 20; self.acd = acd_duur
                 rvn = math.degrees(math.atan2(self.y-sp_y, self.x-sp_x))
-                if not (speler_blok and abs(hoek_diff(rvn, fh_sp)) < 60):
-                    if speler_flinch_cd <= 0:
-                        aanval = ("melee", self.x, self.y, melee_sch)
+                if speler_flinch_cd <= 0:
+                    geblokt = speler_blok and abs(hoek_diff(rvn, fh_sp)) < 60
+                    sch = melee_sch * 0.3 if geblokt else melee_sch
+                    aanval = ("melee", self.x, self.y, sch)
         else:
             gd = 230
             if dist > gd+30:   self._beweeg(self.fx*self.snelheid*0.8, self.fy*self.snelheid*0.8, blok_check)
@@ -234,10 +235,10 @@ class Vijand:
         r = self.radius - 2
         nx = self.x+vx; ny = self.y+vy
         if not any(blok_check(int((nx+ox)//TILE), int((self.y+oy)//TILE))
-                   for ox in (-r,r) for oy in (-r,r)):
+                   for ox in (-r, 0, r) for oy in (-r, 0, r)):
             self.x = nx
         if not any(blok_check(int((self.x+ox)//TILE), int((ny+oy)//TILE))
-                   for ox in (-r,r) for oy in (-r,r)):
+                   for ox in (-r, 0, r) for oy in (-r, 0, r)):
             self.y = ny
 
     def teken(self, surface, cam_x, cam_y):

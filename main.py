@@ -2,6 +2,7 @@
 import sys, traceback
 import pygame
 from opslaan import laad_save, sla_op, SCREEN_W, SCREEN_H, FPS
+import geluid
 
 
 def main():
@@ -10,7 +11,10 @@ def main():
     pygame.display.set_caption("RPG - Kasteel & Bos")
     clock = pygame.time.Clock()
 
-    save = laad_save()
+    # Geluid initialiseren
+    geluid.init_geluid()
+
+    save  = laad_save()
     scene = "hub"
 
     while True:

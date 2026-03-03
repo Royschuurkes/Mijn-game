@@ -5,6 +5,7 @@ from entiteiten import Speler, Vijand, Pijl, normalize, hoek_diff
 from kaart import genereer_bos, teken_bos_tegel, teken_boom_object, BOOM_PAL
 from juice import ScreenShake, FreezeFrames, PartikelSysteem, SchadeCijferSysteem, HitFlash
 from level_manager import LevelManager
+import geluid
 
 
 # Pulserende kleur helper
@@ -59,15 +60,27 @@ class BosScene:
             self._spawn_vijand(type_, hp_mult, self.level_mgr.schade_mult)
 
         # Rustfontein positie (midden-links van kaart)
+        def vind_vrije_plek(start_x, start_y, max_pogingen=50):
+            """Zoek een vrije (niet-boom) tegel in de buurt van een startpunt."""
+            for straal in range(1, max_pogingen):
+                for dx in range(-straal, straal+1):
+                    for dy in range(-straal, straal+1):
+                        tx = int(start_x//TILE) + dx
+                        ty = int(start_y//TILE) + dy
+                        if self.tile_op(tx, ty) in (GRAS, PAD):
+                            return tx*TILE+TILE//2, ty*TILE+TILE//2
+            return start_x, start_y  # fallback
+
+        # Rustfontein positie
         self.fontein_pos = None
         if self.level_mgr.is_rust:
-            self.fontein_pos = ((stx-6)*TILE+TILE//2, sty*TILE+TILE//2)
+            fx, fy = vind_vrije_plek((stx-6)*TILE+TILE//2, sty*TILE+TILE//2)
+            self.fontein_pos = (fx, fy)
             self.fontein_gebruikt = False
-            self.exit_open = True  # direct door in rust-kamer
+            self.exit_open = True
 
-        # Exit positie: midden-rechts van kaart
-        self.exit_x = (stx+8)*TILE+TILE//2
-        self.exit_y = sty*TILE+TILE//2
+        # Exit positie
+        self.exit_x, self.exit_y = vind_vrije_plek((stx+8)*TILE+TILE//2, sty*TILE+TILE//2)
 
     def _spawn_vijand(self, type_, hp_mult, schade_mult):
         sp = self.speler
@@ -119,6 +132,8 @@ class BosScene:
             # Dodge trail
             if self.speler.dodge_t > 0:
                 self.dodge_trail_t += 1
+                if self.dodge_trail_t == 1:
+                    geluid.speel("dodge")
                 if self.dodge_trail_t % 3 == 0:
                     self.partikels.dodge_spoor(self.speler.x, self.speler.y)
             else:
@@ -131,11 +146,13 @@ class BosScene:
                 self.freeze.start(2)
                 self.shake.start(kracht=4, duur=8)
                 self.cijfers.voeg_toe(v.x, v.y-20, schade)
+                geluid.speel("zwaard_hit")
                 dood = v.krijg_schade(schade, self.speler.x, self.speler.y)
                 if dood:
                     kl = (220,60,220) if v.type=="baas" else (C_MELEE if v.type=="melee" else C_RANGED)
                     self.partikels.dood_explosie(v.x, v.y, kl)
                     self.shake.start(kracht=8 if v.type=="baas" else 6, duur=16)
+                    geluid.speel("baas_dood" if v.type=="baas" else "vijand_dood")
                     goud = random.randint(GOLD_MIN, GOLD_MAX) * (5 if v.type=="baas" else 1)
                     xp   = XP_PER_VIJAND * (4 if v.type=="baas" else 1)
                     self.save["gold"] += goud
@@ -145,6 +162,7 @@ class BosScene:
                     if leveled:
                         self.cijfers.voeg_toe(self.speler.x, self.speler.y-50,
                             f"LEVEL UP! {self.save['level']}", kleur_override=True)
+                        geluid.speel("level_up")
                     self.vijanden.remove(v)
 
             # Check exit openen
@@ -160,6 +178,7 @@ class BosScene:
                     self.fontein_gebruikt = True
                     self.cijfers.voeg_toe(fx, fy-30, f"+{int(herstel)} HP", kleur_override=False, is_xp=True)
                     self.partikels.dood_explosie(fx, fy, (100,200,255))
+                    geluid.speel("fontein")
 
             # Check exit betreden
             if self.exit_open:
@@ -185,6 +204,7 @@ class BosScene:
                             self.flash.start(kracht=60)
                             self.cijfers.voeg_toe(self.speler.x, self.speler.y-30,
                                 sch, is_speler_schade=True)
+                            geluid.speel("speler_geraakt")
                     elif aanval[0] == "pijl":
                         _, px, py, dx, dy, psch = aanval
                         self.pijlen.append(Pijl(px, py, dx, dy, psch))
@@ -201,6 +221,11 @@ class BosScene:
                     if blok and abs(hoek_diff(ph+180, fh_sp)) < 60:
                         self.partikels.zwaard_vonken(p.x, p.y, ph+180)
                         self.shake.start(kracht=3, duur=6)
+                        geluid.speel("schild_blok")
+                        geraakt = self.speler.krijg_schade(p.schade * 0.3, p.x-p.dx*5, p.y-p.dy*5)
+                        if geraakt:
+                            self.cijfers.voeg_toe(self.speler.x, self.speler.y-30,
+                                p.schade * 0.3, is_speler_schade=True)
                     else:
                         geraakt = self.speler.krijg_schade(p.schade, p.x-p.dx*5, p.y-p.dy*5)
                         if geraakt:
@@ -210,12 +235,26 @@ class BosScene:
                             self.flash.start(kracht=50)
                             self.cijfers.voeg_toe(self.speler.x, self.speler.y-30,
                                 p.schade, is_speler_schade=True)
+                            geluid.speel("speler_geraakt")
                     self.pijlen.remove(p); continue
                 if dist > 700: self.pijlen.remove(p)
 
             self.partikels.update()
             self.cijfers.update()
+            geluid.update_geluid()
             if self.kamer_intro_timer > 0: self.kamer_intro_timer -= 1
+
+            # Struik geluid
+            if in_struik and self.speler.dodge_t == 0:
+                geluid.speel("struik")
+
+            # Voetstap geluid (alleen als speler beweegt en niet in struik)
+            sp = self.speler
+            _keys = pygame.key.get_pressed()
+            _beweegt = any([_keys[pygame.K_w], _keys[pygame.K_s],
+                            _keys[pygame.K_a], _keys[pygame.K_d]])
+            if _beweegt and not in_struik and sp.dodge_t == 0:
+                geluid.speel("stap")
 
             if not self.speler.levend:
                 sla_op(self.save)

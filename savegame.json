@@ -1,13 +1,13 @@
 {
-  "level": 4,
-  "xp": 462,
-  "gold": 437,
+  "level": 5,
+  "xp": 576,
+  "gold": 719,
   "ability_points": 0,
   "stats": {
     "hp": 1,
     "stamina": 4,
     "mana": 1,
-    "strength": 2,
+    "strength": 5,
     "dexterity": 1,
     "intelligence": 0
   }
