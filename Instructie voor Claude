@@ -1,0 +1,101 @@
+INSTRUCTIE VOOR CLAUDE — RPG GAME PROJECT
+==========================================
+
+Hallo! Dit is een lopend game-development project. Lees deze instructie goed door
+voordat je iets doet, zodat we gericht kunnen werken.
+
+
+── WIE BEN IK ────────────────────────────────────────────────────────────────
+
+Ik ben Roy, een beginner op het gebied van programmeren. Ik leer al doende.
+Leg dingen uit als dat nodig is, maar ga niet overmatig uitleggen als ik
+gewoon iets wil bouwen. Houd het praktisch.
+
+
+── WAT BOUWEN WE ─────────────────────────────────────────────────────────────
+
+Een top-down 2D RPG/roguelite in Python met Pygame.
+Artstyle: simpele shapes + "juice" (particles, screenshake, etc.) — geen
+externe assets, alles procedureel gegenereerd.
+
+Het verhaal (nog niet geïmplementeerd):
+  De speler woont in een kasteel. Zijn zus is getrouwd met de prins.
+  Hun dochtertje (het nichtje van de speler) is vermist/ontvoerd.
+  Doel: ga het bos in, vecht je een weg door aaneengeschakelde kamers,
+  versla de eindbaas en red je nichtje.
+
+Kernmechanics:
+  - WASD beweging, speler kijkt naar muiscursor
+  - Spatiebalk: dodge (kost stamina, flinch-cooldown)
+  - LMB: zwaard aanval (kost stamina)
+  - RMB: schild (blokkeert aanvallen van voren, halve snelheid, geen stamina regen)
+  - Flinch + knockback bij hits (speler én vijanden)
+  - Struiken doen schade over tijd
+
+Roguelite loop:
+  - Speler begint in het kasteel (hub)
+  - Gaat bos in → aaneengeschakelde kamers met vijanden
+  - Elke 3e kamer: rustplaats met HP-fontein
+  - Elke 5e kamer: eindbaas
+  - Bij dood: terug naar hub, progressie (gold/XP/level) blijft bewaard
+  - In hub: ability points uitgeven bij standbeeld, later wapens kopen bij smid
+
+Progressie systeem:
+  - Stats: HP, Stamina, Mana, Strength, Dexterity, Intelligence
+  - Ability points verdienen via XP/leveling
+  - Gold droppen van vijanden → uitgeven in hub
+  - Smid (wapens/armor) en Bibliotheek (spreuken) nog te bouwen
+
+
+── BESTANDSSTRUCTUUR ─────────────────────────────────────────────────────────
+
+Alle bestanden staan in één map (geen submappen):
+
+  main.py          — startpunt, scene manager (hub ↔ bos)
+  opslaan.py       — constanten, save/load, stat berekeningen
+  entiteiten.py    — Speler, Vijand, Pijl klassen
+  kaart.py         — procedurele bos/kaart generatie + teken functies
+  hub.py           — kasteel binnenplein scene
+  bos.py           — bos gevecht scene met level progressie
+  juice.py         — visuele effecten (screenshake, particles, damage numbers, etc.)
+  level_manager.py — kamer types, vijand configuratie, moeilijkheidsschaling
+  savegame.json    — automatisch aangemaakt, sla dit nooit handmatig op
+
+Start de game met: py -3.12 main.py
+
+
+── TECHNISCHE AFSPRAKEN ──────────────────────────────────────────────────────
+
+- Python 3.12 (niet 3.14, want pygame werkt daar niet op)
+- Pygame 2.6.1
+- Geen externe libraries buiten pygame en de Python standaardbibliotheek
+- Alles in het Nederlands (variabelenamen, commentaar, UI tekst)
+- Code wordt als losse .txt bestanden aangeleverd zodat ik ze kan downloaden,
+  hernoemen naar .py en in mijn map zetten
+- Wijzigingen worden zo klein mogelijk gehouden — liever gerichte aanpassingen
+  dan hele bestanden herschrijven, tenzij echt nodig
+- Na elke werkende versie upload ik de code naar GitHub (repository: Royschuurkes)
+
+
+── WAT NOG GEBOUWD MOET WORDEN (prioriteitsvolgorde) ─────────────────────────
+
+1. Wapens & armor systeem (smid in hub)
+2. Geluidseffecten (zwaard, hit, dodge, footsteps)
+3. Verhaal intro scherm
+4. Character creator (naam, uiterlijk)
+5. Bibliotheek (magische spreuken leren)
+6. Verborgen merchant in bos kamers
+7. Meerdere biomes / omgevingen
+8. Einddbaas met unieke mechanics
+9. PyInstaller .exe voor delen met vrienden
+
+
+── HOE WE SAMENWERKEN ────────────────────────────────────────────────────────
+
+- Ik deel deze instructie + de relevante .py bestanden aan het begin van elke chat
+- Jij leest de code eerst voordat je iets schrijft
+- We werken één feature tegelijk uit
+- Jij mag altijd suggesties doen als je een betere aanpak ziet
+- Als iets te groot wordt voor één sessie, splitsen we het op
+
+==========================================
