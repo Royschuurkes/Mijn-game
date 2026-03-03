@@ -49,6 +49,10 @@ class BosScene:
         self.cijfers   = SchadeCijferSysteem()
         self.flash     = HitFlash()
         self.dodge_trail_t = 0
+        # Vloeiende camera
+        if eerste:
+            self.cam_x = float(self.speler.x - SCREEN_W/2)
+            self.cam_y = float(self.speler.y - SCREEN_H/2)
         self.exit_open = False
         self.overgang_timer = 0  # aftellen na exit betreden
         self.kamer_intro_timer = 3 * FPS  # intro tekst
@@ -60,22 +64,20 @@ class BosScene:
             self._spawn_vijand(type_, hp_mult, self.level_mgr.schade_mult)
 
         # Rustfontein positie (midden-links van kaart)
-        def vind_vrije_plek(start_x, start_y, max_pogingen=50):
-            """Zoek een vrije (niet-boom) tegel in de buurt van een startpunt."""
-            for straal in range(1, max_pogingen):
+        def vind_vrije_plek(start_x, start_y):
+            for straal in range(1, 50):
                 for dx in range(-straal, straal+1):
                     for dy in range(-straal, straal+1):
                         tx = int(start_x//TILE) + dx
                         ty = int(start_y//TILE) + dy
                         if self.tile_op(tx, ty) in (GRAS, PAD):
                             return tx*TILE+TILE//2, ty*TILE+TILE//2
-            return start_x, start_y  # fallback
+            return start_x, start_y
 
         # Rustfontein positie
         self.fontein_pos = None
         if self.level_mgr.is_rust:
-            fx, fy = vind_vrije_plek((stx-6)*TILE+TILE//2, sty*TILE+TILE//2)
-            self.fontein_pos = (fx, fy)
+            self.fontein_pos = vind_vrije_plek((stx-6)*TILE+TILE//2, sty*TILE+TILE//2)
             self.fontein_gebruikt = False
             self.exit_open = True
 
@@ -118,11 +120,14 @@ class BosScene:
                     self._laad_kamer()
                 continue
 
-            blok = pygame.mouse.get_pressed()[2]
+            blok = pygame.mouse.get_pressed()[2] and self.speler._heeft_schild()
             self.speler.verwerk_events(events)
 
-            cam_x = max(0, min(int(self.speler.x-SCREEN_W/2), self.W*TILE-SCREEN_W))
-            cam_y = max(0, min(int(self.speler.y-SCREEN_H/2), self.H*TILE-SCREEN_H))
+            # Camera smoothing
+            self.cam_x += (self.speler.x - SCREEN_W/2 - self.cam_x) * 0.12
+            self.cam_y += (self.speler.y - SCREEN_H/2 - self.cam_y) * 0.12
+            cam_x = max(0, min(int(self.cam_x), self.W*TILE-SCREEN_W))
+            cam_y = max(0, min(int(self.cam_y), self.H*TILE-SCREEN_H))
 
             keys = pygame.key.get_pressed()
             in_struik = self.speler.update(
@@ -148,6 +153,32 @@ class BosScene:
                 self.cijfers.voeg_toe(v.x, v.y-20, schade)
                 geluid.speel("zwaard_hit")
                 dood = v.krijg_schade(schade, self.speler.x, self.speler.y)
+                if dood:
+                    kl = (220,60,220) if v.type=="baas" else (C_MELEE if v.type=="melee" else C_RANGED)
+                    self.partikels.dood_explosie(v.x, v.y, kl)
+                    self.shake.start(kracht=8 if v.type=="baas" else 6, duur=16)
+                    geluid.speel("baas_dood" if v.type=="baas" else "vijand_dood")
+                    goud = random.randint(GOLD_MIN, GOLD_MAX) * (5 if v.type=="baas" else 1)
+                    xp   = XP_PER_VIJAND * (4 if v.type=="baas" else 1)
+                    self.save["gold"] += goud
+                    leveled = voeg_xp_toe(self.save, xp)
+                    self.cijfers.voeg_toe(v.x, v.y-40, goud, is_goud=True)
+                    self.cijfers.voeg_toe(v.x, v.y-20, xp,   is_xp=True)
+                    if leveled:
+                        self.cijfers.voeg_toe(self.speler.x, self.speler.y-50,
+                            f"LEVEL UP! {self.save['level']}", kleur_override=True)
+                        geluid.speel("level_up")
+                    self.vijanden.remove(v)
+
+            # Special attack hits
+            for (v, schade, kb) in self.speler.special_hits(self.vijanden):
+                hoek = math.degrees(math.atan2(v.y-self.speler.y, v.x-self.speler.x))
+                self.partikels.zwaard_vonken(v.x, v.y, hoek)
+                self.freeze.start(3)
+                self.shake.start(kracht=6, duur=10)
+                self.cijfers.voeg_toe(v.x, v.y-20, schade)
+                geluid.speel("zwaard_hit")
+                dood = v.krijg_schade_knockback(schade, self.speler.x, self.speler.y, kb)
                 if dood:
                     kl = (220,60,220) if v.type=="baas" else (C_MELEE if v.type=="melee" else C_RANGED)
                     self.partikels.dood_explosie(v.x, v.y, kl)
@@ -222,10 +253,6 @@ class BosScene:
                         self.partikels.zwaard_vonken(p.x, p.y, ph+180)
                         self.shake.start(kracht=3, duur=6)
                         geluid.speel("schild_blok")
-                        geraakt = self.speler.krijg_schade(p.schade * 0.3, p.x-p.dx*5, p.y-p.dy*5)
-                        if geraakt:
-                            self.cijfers.voeg_toe(self.speler.x, self.speler.y-30,
-                                p.schade * 0.3, is_speler_schade=True)
                     else:
                         geraakt = self.speler.krijg_schade(p.schade, p.x-p.dx*5, p.y-p.dy*5)
                         if geraakt:
@@ -266,8 +293,8 @@ class BosScene:
     def _teken(self):
         blok = pygame.mouse.get_pressed()[2]
         sp   = self.speler
-        cam_x = max(0, min(int(sp.x-SCREEN_W/2), self.W*TILE-SCREEN_W))
-        cam_y = max(0, min(int(sp.y-SCREEN_H/2), self.H*TILE-SCREEN_H))
+        cam_x = max(0, min(int(self.cam_x), self.W*TILE-SCREEN_W))
+        cam_y = max(0, min(int(self.cam_y), self.H*TILE-SCREEN_H))
         ox, oy = self.shake.update()
 
         self.screen.fill(C_BG)

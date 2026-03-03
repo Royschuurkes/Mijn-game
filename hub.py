@@ -124,8 +124,11 @@ class HubScene:
                 if resultaat=="sluit": self.menu_open=None
                 pygame.display.flip(); continue
             elif self.menu_open=="blacksmith":
-                self.teken_placeholder("Blacksmith","Hier kun je later wapens en\narmor kopen!",menu_events)
-                pygame.display.flip(); continue
+                from smid import SmidScene
+                resultaat = SmidScene(self.screen, self.clock, self.save).run()
+                self.menu_open = None
+                if resultaat == "quit": return "quit"
+                continue
             elif self.menu_open=="library":
                 self.teken_placeholder("Bibliotheek","Hier kun je later\nmagische spreuken leren!",menu_events)
                 pygame.display.flip(); continue

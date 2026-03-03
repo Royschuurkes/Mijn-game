@@ -75,6 +75,8 @@ BOOM_PAL = [
 
 DEFAULT_SAVE = {
     "level": 1, "xp": 0, "gold": 0, "ability_points": 0,
+    "wapen": "simpel_zwaard",
+    "gekochte_wapens": ["simpel_zwaard"],
     "stats": {
         "hp": 0, "stamina": 0, "mana": 0,
         "strength": 0, "dexterity": 0, "intelligence": 0
