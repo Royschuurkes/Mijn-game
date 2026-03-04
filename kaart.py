@@ -115,12 +115,15 @@ x=1
 def genereer_bos(moeilijkheid=1):
     kaart = _maak_basis()
     random.choice(LAYOUTS)(kaart)
-    stx=3; sty=KAART_H//2
+    # Spawn: gat in de LINKER boomrand
+    stx=2; sty=KAART_H//2
     for dy in range(-2, 3):
         for dx in range(0, 5): _zet(kaart, stx+dx, sty+dy, PAD)
-    etx=KAART_B-5; ety=KAART_H//2
+
+    # Exit: gat IN de RECHTER boomrand (portal zit in de rand zelf)
+    etx=KAART_B-3; ety=KAART_H//2
     for dy in range(-2, 3):
-        for dx in range(-3, 2): _zet(kaart, etx+dx, ety+dy, GRAS)
+        for dx in range(-4, 1): _zet(kaart, etx+dx, ety+dy, GRAS)
     for tx in range(stx+4, KAART_B//2): _zet(kaart, tx, sty, PAD)
     tile_op = _tile_op_fn(kaart)
     bomen=[]; bezocht=set()

@@ -1,23 +1,19 @@
 {
-  "level": 7,
-  "xp": 467,
-  "gold": 622,
+  "level": 2,
+  "xp": 230,
+  "gold": 22,
   "ability_points": 0,
   "stats": {
-    "hp": 1,
-    "stamina": 4,
-    "mana": 1,
-    "strength": 5,
-    "dexterity": 7,
+    "hp": 3,
+    "stamina": 0,
+    "mana": 0,
+    "strength": 0,
+    "dexterity": 0,
     "intelligence": 0
   },
-  "wapen": "dolk",
+  "wapen": "schild",
   "gekochte_wapens": [
     "simpel_zwaard",
-    "hamer",
-    "rapier",
-    "schild",
-    "grote_bijl",
-    "dolk"
+    "schild"
   ]
 }

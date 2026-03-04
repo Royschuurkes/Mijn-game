@@ -201,7 +201,8 @@ class Speler:
     def zwaard_hits(self, vijanden):
         hits = []
         if self.zw_t <= 0: return hits
-        w = self._wapen()
+        from wapens import get_wapen as _gw
+        w = _gw("simpel_zwaard") if self._heeft_schild() else self._wapen()
         bereik = w.get("bereik", ZWAARD_BEREIK)
         hoek_w = w.get("hoek", ZWAARD_HOEK)
         zwaard_frames = w["zwaard_frames"] if w["zwaard_frames"] > 0 else ZWAARD_FRAMES

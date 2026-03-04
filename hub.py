@@ -1,5 +1,5 @@
 # hub.py - Binnenplein (kasteel hub wereld)
-import math, pygame
+import math, pygame, geluid
 from opslaan import *
 
 # Hub tile types (apart van de bos types)
@@ -151,6 +151,11 @@ class HubScene:
                 ny=self.sp_y+my*speed
                 if not any(self.geblokkeerd(int((self.sp_x+ox)//TILE),int((ny+oy)//TILE)) for ox in(-r,r) for oy in(-r,r)):
                     self.sp_y=ny
+                    # Geluid
+            geluid.update_geluid()
+            beweegt = abs(mx) > 0.1 or abs(my) > 0.1
+            if beweegt:
+                geluid.speel("stap")
 
                 if self.bij_exit(): return "bos"
 
@@ -277,6 +282,14 @@ class HubScene:
         st=self.font_m.render("Sluiten",True,(255,200,200))
         self.screen.blit(st,(sluit.centerx-st.get_width()//2,sluit.centery-st.get_height()//2))
 
+            # Reset knop rechtsboven in het menu
+        reset = pygame.Rect(px+pw-115, py+10, 105, 28)
+        rk = (130,40,40) if reset.collidepoint(pygame.mouse.get_pos()) else (80,25,25)
+        pygame.draw.rect(self.screen, rk, reset, border_radius=5)
+        pygame.draw.rect(self.screen, (200,60,60), reset, 2, border_radius=5)
+        rst = self.font_s.render("RESET ALLES", True, (255,160,160))
+        self.screen.blit(rst, (reset.centerx-rst.get_width()//2, reset.centery-rst.get_height()//2))
+        
         for e in events:
             if e.type==pygame.MOUSEBUTTONDOWN and e.button==1:
                 for (knop,key) in knoppen:
@@ -285,8 +298,18 @@ class HubScene:
                         self.save["ability_points"]-=1
                         sla_op(self.save)
                 if sluit.collidepoint(e.pos): return "sluit"
+                if reset.collidepoint(e.pos):
+                    self.save["level"] = 1
+                    self.save["xp"] = 0
+                    self.save["gold"] = 0
+                    self.save["ability_points"] = 0
+                    self.save["wapen"] = "simpel_zwaard"
+                    self.save["gekochte_wapens"] = ["simpel_zwaard"]
+                    for k in self.save["stats"]: self.save["stats"][k] = 0
+                    sla_op(self.save)
+                    return "sluit"
             if e.type==pygame.KEYDOWN and e.key==pygame.K_e: return "sluit"
-        return None
+            return None
 
     def teken_placeholder(self, titel, tekst, events):
         overlay=pygame.Surface((SCREEN_W,SCREEN_H),pygame.SRCALPHA)
