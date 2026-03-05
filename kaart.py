@@ -107,6 +107,50 @@ def _layout_split(kaart):
 LAYOUTS = [_layout_open_pilaren, _layout_chokepoint, _layout_boomgang,
            _layout_ruines, _layout_arena, _layout_split]
 
+def genereer_arena(deuren=None):
+    """Lege rechthoekige gevechtsarena voor baasgevechten — geen bomen of obstakels."""
+    if deuren is None: deuren = {"E"}
+    # Alles gras
+    kaart = [[GRAS]*KAART_B for _ in range(KAART_H)]
+    # Rand van bomen als muur
+    for tx in range(KAART_B):
+        for ty in range(KAART_H):
+            if tx < 2 or tx >= KAART_B-2 or ty < 2 or ty >= KAART_H-2:
+                kaart[ty][tx] = BOOM
+    my = KAART_H // 2
+    mx = KAART_B // 2
+    spawn_posities = {}
+    if "W" in deuren:
+        for dy in range(-2, 3):
+            for dx in range(0, 4): kaart[my+dy][dx] = GRAS
+        spawn_posities["W"] = (2, my)
+    if "E" in deuren:
+        for dy in range(-2, 3):
+            for dx in range(KAART_B-4, KAART_B): kaart[my+dy][dx] = GRAS
+        spawn_posities["E"] = (KAART_B-3, my)
+    if "N" in deuren:
+        for dx in range(-2, 3):
+            for dy in range(0, 4): kaart[dy][mx+dx] = GRAS
+        spawn_posities["N"] = (mx, 2)
+    if "S" in deuren:
+        for dx in range(-2, 3):
+            for dy in range(KAART_H-4, KAART_H): kaart[dy][mx+dx] = GRAS
+        spawn_posities["S"] = (mx, KAART_H-3)
+    if not spawn_posities:
+        spawn_posities["W"] = (KAART_B//2, KAART_H//2)
+    tile_op = _tile_op_fn(kaart)
+    bomen = []
+    bezocht = set()
+    for ty in range(KAART_H):
+        for tx in range(KAART_B):
+            if kaart[ty][tx] == BOOM and (tx,ty) not in bezocht:
+                bomen.append((tx,ty,1))
+                bezocht.add((tx,ty))
+    rng = random.Random(random.randint(0,9999))
+    pal_map = {(tx,ty): rng.choice(BOOM_PAL) for tx,ty,g in bomen}
+    return kaart, bomen, pal_map, spawn_posities, tile_op
+
+
 def genereer_bos(deuren=None):
     if deuren is None: deuren = {"E"}
     kaart = _maak_basis()

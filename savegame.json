@@ -1,8 +1,6 @@
 {
   "wapen": "schild",
-  "items": [
-    "bloodthirst"
-  ],
+  "items": [],
   "item_charges": {},
   "actieve_effecten": {
     "invis": 0,

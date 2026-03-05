@@ -80,7 +80,7 @@ class HubScene:
         self.font_m=pygame.font.SysFont("monospace",20)
         self.font_g=pygame.font.SysFont("monospace",28,bold=True)
         self.menu_open=None
-        self.level_up_msg=0
+        self.level_up_msg = 3 * FPS if save.get("hoogste_floor", 0) > 0 else 0
 
     def tile_op(self,tx,ty):
         if 0<=tx<HUB_W and 0<=ty<HUB_H: return self.kaart[ty][tx]
@@ -207,11 +207,20 @@ class HubScene:
         # HUD
         self.teken_hub_hud()
 
-        # Level up melding
-        if self.level_up_msg>0:
-            alpha=min(255,self.level_up_msg*4)
-            t=self.font_g.render(f"LEVEL UP!  Nu level {self.save['level']}",True,(255,220,50))
-            self.screen.blit(t,(SCREEN_W//2-t.get_width()//2,SCREEN_H//2-60))
+        # Welkom terug scherm — floor progress
+        if self.level_up_msg > 0:
+            alpha = min(255, self.level_up_msg * 5)
+            floor_bereikt = self.save.get("hoogste_floor", 0)
+            if floor_bereikt > 0:
+                overlay2 = pygame.Surface((SCREEN_W, 120), pygame.SRCALPHA)
+                overlay2.fill((0, 0, 0, min(160, alpha)))
+                self.screen.blit(overlay2, (0, SCREEN_H//2 - 70))
+                t1 = self.font_g.render("Welkom terug, ridder!", True, (220, 200, 120))
+                t1.set_alpha(alpha)
+                self.screen.blit(t1, (SCREEN_W//2 - t1.get_width()//2, SCREEN_H//2 - 55))
+                t2 = self.font_m.render(f"Hoogste floor bereikt: Floor {floor_bereikt}", True, (180, 220, 255))
+                t2.set_alpha(alpha)
+                self.screen.blit(t2, (SCREEN_W//2 - t2.get_width()//2, SCREEN_H//2 - 10))
 
     def teken_hub_hud(self):
         t = self.font_s.render("Hub  —  WASD bewegen, E interacteren, portaal naar level", True, (220,220,180))

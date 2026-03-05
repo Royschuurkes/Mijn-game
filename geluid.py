@@ -6,14 +6,13 @@ import array
 import random
 
 SAMPLE_RATE = 44100
-pygame.mixer.pre_init(SAMPLE_RATE, -16, 2, 512)
+pygame.mixer.pre_init(SAMPLE_RATE, -16, 1, 512)
 
 
 def _maak_geluid(samples):
-    """Zet een lijst van floats (-1.0 tot 1.0) om naar een pygame Sound."""
-    import numpy as np
-    mono = np.array([max(-32767, min(32767, int(s * 32767))) for s in samples], dtype=np.int16)
-    stereo = np.column_stack((mono, mono))
+    """Zet een lijst van floats (-1.0 tot 1.0) om naar een pygame Sound (stereo)."""
+    int_s = [max(-32767, min(32767, int(s * 32767))) for s in samples]
+    stereo = array.array('h', [v for v in int_s for _ in range(2)])
     geluid = pygame.sndarray.make_sound(stereo)
     return geluid
 
@@ -147,6 +146,25 @@ def _gen_struik():
     return ruis
 
 
+def _gen_fase2():
+    """Zware dreun + oplopende toon bij fase 2 overgang."""
+    dreun  = _sinus(55,  0.25, volume=0.9, verval=False)
+    dreun2 = _sinus(80,  0.15, volume=0.6, verval=True)
+    ruis   = _ruis(0.08, volume=0.3)
+    sweep  = _sweep(200, 600,  0.4, volume=0.5)
+    basis  = _mix(dreun, dreun2[:len(dreun)])
+    basis  = _mix(basis, ruis[:len(basis)])
+    extra  = [0.0] * int(SAMPLE_RATE * 0.1) + sweep
+    return _mix(basis, extra[:len(basis)])
+
+
+def _gen_finisher_charge():
+    """Oplaadtoon voor finisher windup — hoog en gespannen."""
+    sweep = _sweep(300, 900, 0.18, volume=0.35, verval=False)
+    ruis  = _ruis(0.18, volume=0.12)
+    return _mix(sweep, ruis[:len(sweep)])
+
+
 def _gen_stap():
     """Zachte voetstap."""
     ruis = _ruis(0.05, volume=0.12)
@@ -171,6 +189,8 @@ class GeluidManager:
             "vijand_dood":    _maak_geluid(_gen_vijand_dood()),
             "baas_dood":      _maak_geluid(_gen_baas_dood()),
             "fontein":        _maak_geluid(_gen_fontein()),
+            "fase2":          _maak_geluid(_gen_fase2()),
+            "finisher_charge":_maak_geluid(_gen_finisher_charge()),
             "level_up":       _maak_geluid(_gen_level_up()),
             "struik":         _maak_geluid(_gen_struik()),
             "stap":           _maak_geluid(_gen_stap()),
@@ -186,6 +206,8 @@ class GeluidManager:
             "vijand_dood":    0.7,
             "baas_dood":      1.0,
             "fontein":        0.6,
+            "fase2":          1.0,
+            "finisher_charge":0.5,
             "level_up":       0.8,
             "struik":         0.4,
             "stap":           0.5,

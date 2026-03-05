@@ -29,8 +29,9 @@ STAMINA_DODGE     = 30.0
 STAMINA_ZWAARD    = 14.0
 STAMINA_REGEN_PCT = 0.80
 STAMINA_DELAY     = 90
-STAMINA_SCHILD    = 18.0   # melee blok: ~4-5 hits voor guard break
-STAMINA_SCHILD_PIJL = 12.0  # pijl blok: goedkoper, maar salvo kost alsnog 36
+STAMINA_SCHILD      = 12.0   # melee blok: ~7 hits voor guard break
+STAMINA_SCHILD_PIJL = 8.0    # pijl blok: goedkoper, salvo kost 24
+BLOK_SCHADE_DOOR    = 0.10   # 10% schade lekt door een succesvolle blok
 GUARD_BREAK_T     = 50
 
 # Schade & gevecht
@@ -69,6 +70,7 @@ BOOM_PAL = [
 
 DEFAULT_SAVE = {
     "wapen":            "schild",
+    "hoogste_floor":    0,
     "items":            [],   # verkregen items deze run
     "item_charges":     {},   # {item_key: charges_remaining}
     "actieve_effecten": {     # tijdelijke effecten met afteltimer

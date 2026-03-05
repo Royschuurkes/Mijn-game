@@ -37,6 +37,7 @@ class Speler:
         self.dodge_vx = self.dodge_vy = 0.0  # richting van de dodge
         self.zw_t = self.zw_cd = 0
         self.flinch_t = self.flinch_cd = 0
+        self.hit_flash_t = 0  # witte flits bij schade
         self.flinch_vx = self.flinch_vy = 0.0
         self.sta_delay = 0
         self.geraakt = set()
@@ -135,10 +136,11 @@ class Speler:
             self.combo_stap      = 2
             self.combo_t         = 0
             self.combo_window    = 0
-            self.finisher_windup = 10
+            self.finisher_windup = 16   # langer windup = duidelijker telegraph
             self.is_dash_strike  = False
             self.facing_locked   = True
             self.lock_fx = self.fx; self.lock_fy = self.fy
+            import geluid as _gel; _gel.speel("finisher_charge")
         else:
             self.combo_stap     = (self.combo_stap % 3) + 1
             self.combo_t        = 10
@@ -288,7 +290,7 @@ class Speler:
                    for ox in (-r,r) for oy in (-r,r)):
             self.y = ny
 
-        for attr in ("dodge_t","dodge_cd","zw_t","zw_cd","flinch_t","flinch_cd","special_t","special_cd"):
+        for attr in ("dodge_t","dodge_cd","zw_t","zw_cd","flinch_t","flinch_cd","special_t","special_cd","hit_flash_t"):
             if getattr(self, attr) > 0:
                 setattr(self, attr, getattr(self, attr)-1)
         if self.special_t == 0:
@@ -400,6 +402,7 @@ class Speler:
         self.flinch_cd = FLINCH_CD_SPELER
         self.flinch_vx = knx * KNOCKBACK
         self.flinch_vy = kny * KNOCKBACK
+        self.hit_flash_t = 8  # witte flits
         return True
 
     def verwerk_blok(self, van_x, van_y, stamina_kosten=None):
@@ -548,7 +551,9 @@ class Speler:
         knip = self.flinch_t>0 and (self.flinch_t//4)%2==0
         guard_knip = self.guard_break_t > 0 and (self.guard_break_t//3)%2==0
         pygame.draw.ellipse(surface, C_SCH, (sx-rw+4, sy+rh_s-4, rw*2, rh_s))
-        if guard_knip:
+        if self.hit_flash_t > 0 and (self.hit_flash_t // 2) % 2 == 0:
+            kl = (255, 255, 255)  # witte flits bij schade
+        elif guard_knip:
             kl = (255, 200, 50)   # oranje knipperen bij guard break
         else:
             kl = (220,60,60) if knip else (C_SP_DOD if self.dodge_t>0 else C_SP)
@@ -826,8 +831,8 @@ class Vijand:
                 elif dist < WOLF_AFSTAND - 30:
                     # Te dichtbij: stap achteruit
                     self._beweeg(-self.fx * self.snelheid * 0.7, -self.fy * self.snelheid * 0.7, blok_check)
-                # Klaar om aan te vallen?
-                if self.acd <= 0 and dist < WOLF_AFSTAND + 120:
+                # Klaar om aan te vallen? Minimale afstand zodat hoek betrouwbaar is
+                if self.acd <= 0 and 60 < dist < WOLF_AFSTAND + 120:
                     self.wolf_staat = "windup"
                     self.wolf_t     = WOLF_WINDUP_T
 
@@ -889,9 +894,7 @@ class Vijand:
                 self.schaal_x = 0.7; self.schaal_y = 1.4  # anticipatie squeeze
                 rvn = math.degrees(math.atan2(self.y-sp_y, self.x-sp_x))
                 if speler_flinch_cd <= 0:
-                    geblokt = speler_blok and abs(hoek_diff(rvn, fh_sp)) < 60
-                    sch = melee_sch * 0.3 if geblokt else melee_sch
-                    aanval = ("melee", self.x, self.y, sch)
+                    aanval = ("melee", self.x, self.y, melee_sch)
         else:
             # Boogschutter persoonlijkheid
             VLUCHTEN_AFSTAND = 130   # te dichtbij: wegrennen
@@ -953,7 +956,7 @@ class Vijand:
             # Start aim als cooldown klaar
             elif self.acd <= 0 and dist < 400 and dist > VLUCHTEN_AFSTAND:
                 cd = int(2.0*FPS) if dist < GEWENSTE_AFSTAND else int(3.0*FPS)
-                self.acd = cd
+                self.acd = cd + random.randint(-20, 40)  # desync tussen archers
                 self.aim_t  = AIM_FRAMES
                 self.aim_fx = self.fx
                 self.aim_fy = self.fy
@@ -1033,9 +1036,9 @@ class Vijand:
 
         # Slapend indicator — "z z" boven vijand als niet aggro
         if not self.aggro:
-            bob = int(math.sin(pygame.time.get_ticks() * 0.003) * 3)
-            zs = pygame.font.Font(None, 16).render("z z", True, (160, 185, 255))
-            surface.blit(zs, (sx - zs.get_width()//2, sy - rh_s - 16 + bob))
+            bob = int(math.sin(pygame.time.get_ticks() * 0.0015) * 5)  # langzamer, groter
+            zs = pygame.font.Font(None, 22).render("z z z", True, (160, 185, 255))
+            surface.blit(zs, (sx - zs.get_width()//2, sy - rh_s - 20 + bob))
 
         # Burning visueel — oranje gloed
         if self.burning_t > 0:
@@ -1094,6 +1097,358 @@ class Vijand:
                     dot_surf = pygame.Surface((r_dot*2+2, r_dot*2+2), pygame.SRCALPHA)
                     pygame.draw.circle(dot_surf, (*aim_kl, alpha), (r_dot+1, r_dot+1), r_dot)
                     surface.blit(dot_surf, (px3-r_dot-1, py3-r_dot-1))
+
+
+class BaasVijand:
+    """De Bosridder — eindbaas van floor 5 van Level 1: The Forest."""
+
+    MAX_HP      = 400.0
+    RADIUS      = 32
+    SNELHEID    = 1.6
+    KLEUR_F1    = (55,  90,  45)   # donkergroen fase 1
+    KLEUR_F2    = (110, 30,  20)   # diep rood fase 2
+    KLEUR_OOG   = (200, 80, 255)   # paars
+
+    # Aanval timing (frames)
+    MELEE_WINDUP   = 22
+    MELEE_FRAMES   = 16
+    MELEE_ACD      = 90
+    MELEE_SCHADE   = 35.0
+    MELEE_BEREIK   = 68
+
+    CHARGE_WINDUP  = 38
+    CHARGE_T       = 22
+    CHARGE_SPEED   = DODGE_SPEED * 2.2
+    CHARGE_SCHADE  = 45.0
+    CHARGE_ACD     = 150
+
+    STAMP_WINDUP   = 30
+    STAMP_SCHADE   = 30.0
+    STAMP_MAX_R    = 180
+    STAMP_SPEED    = 4.5   # px per frame uitbreiding
+    STAMP_ACD      = 200
+
+    def __init__(self, x, y, schade_mult=1.0):
+        self.x = float(x); self.y = float(y)
+        self.type = "baas"
+        self.id   = Vijand.nieuw_id()
+        self.max_hp = self.MAX_HP * schade_mult
+        self.hp     = self.max_hp
+        self.radius = self.RADIUS
+        self.schade_mult = schade_mult
+
+        self.fx = 0.0; self.fy = 1.0
+        self.schaal_x = 1.0; self.schaal_y = 1.0
+        self.flinch = 0; self.flinch_vx = 0.0; self.flinch_vy = 0.0
+        self.hit_stop = 0
+        self.anim = 0
+
+        # Staat machine
+        self.staat  = "volgen"
+        self.staat_t = 0        # afteltimer voor huidige staat
+        self.acd    = 60        # initiële aanvalscooldown
+
+        # Charge vars
+        self.charge_vx = 0.0; self.charge_vy = 0.0
+        self.charge_geraakt = False
+
+        # Grondstamp vars
+        self.stamp_ringen = []  # lijst van (x, y, radius, alpha)
+
+        # Fase 2
+        self.fase2         = False
+        self.fase2_trigger = False   # True het frame dat fase 2 activeert
+        self.glow          = 0.0
+
+        # Aggro (altijd actief voor baas)
+        self.aggro     = True
+        self.groep_id  = 0
+        self.burning_t = 0; self.burning_tick = 0
+
+    # ── Schade ontvangen ────────────────────────────────────────────
+    def krijg_schade(self, schade, van_x, van_y):
+        self.hp -= schade
+        knx, kny = normalize(self.x-van_x, self.y-van_y)
+        self.flinch    = FLINCH_VIJAND
+        self.flinch_vx = knx * KNOCKBACK * 0.5   # baas wordt minder ver geslagen
+        self.flinch_vy = kny * KNOCKBACK * 0.5
+        self.schaal_x  = 1.5; self.schaal_y = 0.6
+        self.hit_stop  = 5
+        # Fase 2 trigger
+        if not self.fase2 and self.hp <= self.max_hp * 0.5:
+            self.fase2         = True
+            self.fase2_trigger = True
+        return self.hp <= 0
+
+    def krijg_schade_swing(self, schade, kb_nx, kb_ny):
+        return self.krijg_schade(schade, self.x - kb_nx*50, self.y - kb_ny*50)
+
+    def krijg_schade_knockback(self, schade, van_x, van_y, knockback):
+        return self.krijg_schade(schade, van_x, van_y)
+
+    # ── Update ──────────────────────────────────────────────────────
+    def update(self, sp_x, sp_y, blok_check, fh_sp, speler_blok, speler_flinch_cd):
+        dvx = sp_x - self.x; dvy = sp_y - self.y
+        dist = math.hypot(dvx, dvy)
+        self.fx, self.fy = normalize(dvx, dvy)
+
+        if self.hit_stop > 0:
+            self.hit_stop -= 1
+            self.schaal_x = lerp(self.schaal_x, 1.0, 0.12)
+            self.schaal_y = lerp(self.schaal_y, 1.0, 0.12)
+            return None, False
+
+        if self.anim   > 0: self.anim   -= 1
+        if self.acd    > 0: self.acd    -= 1
+        if self.staat_t > 0: self.staat_t -= 1
+
+        # Flinch beweging
+        if self.flinch > 0:
+            self.flinch -= 1
+            self._beweeg(self.flinch_vx * (self.flinch/FLINCH_VIJAND),
+                         self.flinch_vy * (self.flinch/FLINCH_VIJAND), blok_check)
+
+        # Fase 2 trigger: korte stun + gloed
+        fase2_trigger = self.fase2_trigger
+        if self.fase2_trigger:
+            self.fase2_trigger = False
+            self.staat   = "fase2_intro"
+            self.staat_t = 50
+            self.schaal_x = 1.8; self.schaal_y = 0.3
+
+        # Squash normaliseren
+        self.schaal_x = lerp(self.schaal_x, 1.0, 0.1)
+        self.schaal_y = lerp(self.schaal_y, 1.0, 0.1)
+        if self.fase2:
+            self.glow = lerp(self.glow, 0.7, 0.03)
+        else:
+            self.glow = lerp(self.glow, 0.0, 0.05)
+
+        # Fase 2 snelheidsbonus
+        spd = self.SNELHEID * (1.3 if self.fase2 else 1.0)
+
+        aanval = None
+
+        if self.staat == "fase2_intro":
+            # Staan stil, gloeien
+            if self.staat_t == 0:
+                self.staat = "volgen"
+            return aanval, fase2_trigger
+
+        elif self.staat == "volgen":
+            # Beweeg naar speler
+            if dist > self.MELEE_BEREIK + 15:
+                self.schaal_x = lerp(self.schaal_x, 1.15, 0.08)
+                self.schaal_y = lerp(self.schaal_y, 0.88, 0.08)
+                self._beweeg(self.fx * spd, self.fy * spd, blok_check)
+
+            if self.acd <= 0:
+                # Kies aanval op basis van afstand en fase
+                if dist > 180 and self.fase2 and random.random() < 0.4:
+                    self._start_stamp()
+                elif dist > 130 and random.random() < 0.45:
+                    self._start_charge()
+                else:
+                    self._start_melee()
+
+        elif self.staat == "melee_windup":
+            # Stap achteruit, heft zwaard
+            self._beweeg(-self.fx * 0.6, -self.fy * 0.6, blok_check)
+            self.schaal_x = lerp(self.schaal_x, 0.7,  0.12)
+            self.schaal_y = lerp(self.schaal_y, 1.45, 0.12)
+            if self.staat_t == 0:
+                self.staat   = "melee_aanval"
+                self.staat_t = self.MELEE_FRAMES
+                self.anim    = self.MELEE_FRAMES
+                self.schaal_x = 1.6; self.schaal_y = 0.5
+                # Aanval — alleen als speler nog binnen bereik (niet weggedodged)
+                if speler_flinch_cd <= 0 and dist < self.MELEE_BEREIK + 25:
+                    rvn = math.degrees(math.atan2(self.y - sp_y, self.x - sp_x))
+                    geblokt = speler_blok and abs(hoek_diff(rvn, fh_sp)) < 65
+                    aanval = ("melee", self.x, self.y, self.MELEE_SCHADE * self.schade_mult)
+
+        elif self.staat == "melee_aanval":
+            if self.staat_t == 0:
+                self.staat   = "herstel"
+                self.staat_t = 35
+                self.acd     = int(self.MELEE_ACD * (0.75 if self.fase2 else 1.0))
+
+        elif self.staat == "charge_windup":
+            # Stap achteruit, rode gloed
+            self._beweeg(-self.fx * 0.5, -self.fy * 0.5, blok_check)
+            self.schaal_x = lerp(self.schaal_x, 0.6,  0.12)
+            self.schaal_y = lerp(self.schaal_y, 1.6,  0.12)
+            # Richting vastzetten halverwege windup
+            if self.staat_t == self.CHARGE_WINDUP // 2:
+                self.charge_vx = self.fx * self.CHARGE_SPEED
+                self.charge_vy = self.fy * self.CHARGE_SPEED
+                self.charge_geraakt = False
+            if self.staat_t == 0:
+                # Richting definitief vastzetten als nog niet gedaan
+                if self.charge_vx == 0 and self.charge_vy == 0:
+                    self.charge_vx = self.fx * self.CHARGE_SPEED
+                    self.charge_vy = self.fy * self.CHARGE_SPEED
+                    self.charge_geraakt = False
+                self.staat   = "charge"
+                self.staat_t = self.CHARGE_T
+                self.schaal_x = 1.7; self.schaal_y = 0.45
+
+        elif self.staat == "charge":
+            self._beweeg(self.charge_vx, self.charge_vy, blok_check)
+            if dist < self.RADIUS + 30 and not self.charge_geraakt and speler_flinch_cd <= 0:
+                self.charge_geraakt = True
+                # Charge is niet blockbaar
+                aanval = ("charge", self.x, self.y, self.CHARGE_SCHADE * self.schade_mult)
+            if self.staat_t == 0:
+                self.staat   = "herstel"
+                self.staat_t = 50
+                self.acd     = int(self.CHARGE_ACD * (0.75 if self.fase2 else 1.0))
+
+        elif self.staat == "stamp_windup":
+            # Staat stil, licht op
+            self.schaal_x = lerp(self.schaal_x, 0.75, 0.1)
+            self.schaal_y = lerp(self.schaal_y, 1.5,  0.1)
+            if self.staat_t == 0:
+                self.staat   = "stamp_actief"
+                self.staat_t = 10
+                self.schaal_x = 2.0; self.schaal_y = 0.3
+                # Start shockwave ring
+                self.stamp_ringen = [{"x": self.x, "y": self.y, "r": 0,
+                                      "max_r": self.STAMP_MAX_R, "alpha": 220}]
+
+        elif self.staat == "stamp_actief":
+            if self.staat_t == 0:
+                self.staat   = "herstel"
+                self.staat_t = 45
+                self.acd     = self.STAMP_ACD
+
+        elif self.staat == "herstel":
+            # Loop weg van speler
+            if dist < 120:
+                self._beweeg(-self.fx * spd * 0.6, -self.fy * spd * 0.6, blok_check)
+            if self.staat_t == 0:
+                self.staat = "volgen"
+
+        # Update stamp ringen
+        for ring in self.stamp_ringen:
+            ring["r"] += self.STAMP_SPEED
+            ring["alpha"] = max(0, int(ring["alpha"] * (1 - ring["r"] / ring["max_r"])))
+        self.stamp_ringen = [r for r in self.stamp_ringen if r["r"] < r["max_r"]]
+
+        # Burning DoT
+        if self.burning_t > 0:
+            self.burning_t    -= 1
+            self.burning_tick -= 1
+            if self.burning_tick <= 0:
+                self.burning_tick = 120
+                self.hp = max(0, self.hp - 8)
+                self.schaal_x = 1.3; self.schaal_y = 0.75
+
+        return aanval, fase2_trigger
+
+    def _start_melee(self):
+        self.staat   = "melee_windup"
+        self.staat_t = int(self.MELEE_WINDUP * (0.8 if self.fase2 else 1.0))
+
+    def _start_charge(self):
+        self.staat     = "charge_windup"
+        self.staat_t   = int(self.CHARGE_WINDUP * (0.8 if self.fase2 else 1.0))
+        self.charge_vx = 0.0; self.charge_vy = 0.0
+
+    def _start_stamp(self):
+        self.staat   = "stamp_windup"
+        self.staat_t = self.STAMP_WINDUP
+
+    def _beweeg(self, vx, vy, blok_check):
+        r = self.radius - 2
+        nx = self.x + vx; ny = self.y + vy
+        if not any(blok_check(int((nx+ox)//TILE), int((self.y+oy)//TILE))
+                   for ox in (-r,0,r) for oy in (-r,0,r)):
+            self.x = nx
+        if not any(blok_check(int((self.x+ox)//TILE), int((ny+oy)//TILE))
+                   for ox in (-r,0,r) for oy in (-r,0,r)):
+            self.y = ny
+
+    # ── Teken ───────────────────────────────────────────────────────
+    def teken(self, surface, cam_x, cam_y):
+        sx = int(self.x - cam_x); sy = int(self.y - cam_y)
+        r  = self.radius
+        rw = int(r * self.schaal_x); rh = int(r * self.schaal_y)
+        rh_s = max(1, rh)
+
+        # Stamp ringen tekenen
+        for ring in self.stamp_ringen:
+            rx = int(ring["x"] - cam_x); ry = int(ring["y"] - cam_y)
+            if ring["alpha"] > 5:
+                rs = pygame.Surface((int(ring["r"])*2+4, int(ring["r"])*2+4), pygame.SRCALPHA)
+                pygame.draw.circle(rs, (255, 200, 50, ring["alpha"]),
+                                   (int(ring["r"])+2, int(ring["r"])+2), int(ring["r"]), 4)
+                surface.blit(rs, (rx - int(ring["r"]) - 2, ry - int(ring["r"]) - 2))
+
+        # Charge telegraph
+        if self.staat == "charge_windup":
+            prog = 1.0 - self.staat_t / max(1, int(self.CHARGE_WINDUP * (0.8 if self.fase2 else 1.0)))
+            lijn_len = int(80 * prog)
+            if lijn_len > 5:
+                ex = int(sx + self.fx * lijn_len)
+                ey = int(sy + self.fy * lijn_len)
+                alpha = int(80 + prog * 160)
+                charge_surf = pygame.Surface((surface.get_width(), surface.get_height()), pygame.SRCALPHA)
+                pygame.draw.line(charge_surf, (255, 60, 20, alpha), (sx, sy), (ex, ey), 4)
+                surface.blit(charge_surf, (0,0))
+
+        # Gloed fase 2
+        if self.glow > 0.05:
+            glow_r = int(r * 1.8 + self.glow * 20)
+            ga = int(self.glow * 140)
+            gs = pygame.Surface((glow_r*2+4, glow_r*2+4), pygame.SRCALPHA)
+            pygame.draw.circle(gs, (200, 40, 20, ga), (glow_r+2, glow_r+2), glow_r)
+            surface.blit(gs, (sx-glow_r-2, sy-glow_r-2))
+
+        # Schaduw
+        pygame.draw.ellipse(surface, C_SCH, (sx-rw+4, sy+rh_s-4, rw*2, rh_s))
+
+        # Lichaam
+        kl = self.KLEUR_F2 if self.fase2 else self.KLEUR_F1
+        if self.flinch > 0 and (self.flinch // 4) % 2 == 0:
+            kl = (220, 220, 220)
+        pygame.draw.ellipse(surface, kl, (sx-rw, sy-rh_s, rw*2, rh_s*2))
+        pygame.draw.ellipse(surface, (200, 180, 150), (sx-rw, sy-rh_s, rw*2, rh_s*2), 3)
+
+        # Burning
+        if self.burning_t > 0:
+            puls = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() * 0.015)
+            br = int(r * 1.4 + puls * 8)
+            ba = int(120 + puls * 80)
+            bs = pygame.Surface((br*2+4, br*2+4), pygame.SRCALPHA)
+            pygame.draw.circle(bs, (255, int(80+puls*60), 0, ba), (br+2, br+2), br)
+            surface.blit(bs, (sx-br-2, sy-br-2))
+
+        # Oog
+        pygame.draw.circle(surface, self.KLEUR_OOG,
+            (int(sx+self.fx*int(r*0.55)), int(sy+self.fy*int(r*0.55))), 7)
+
+        # Zwaard (melee windup / aanval visualisatie)
+        fh = math.degrees(math.atan2(self.fy, self.fx))
+        if self.staat in ("melee_windup", "melee_aanval") and self.anim > 0:
+            t_raw = 1.0 - self.anim / self.MELEE_FRAMES
+            prog  = ease_in_out(t_raw)
+            zh = fh - 70 + prog * 140
+            rad = math.radians(zh)
+            pygame.draw.line(surface, (200,200,230), (sx,sy),
+                (int(sx+math.cos(rad)*58), int(sy+math.sin(rad)*58)), 6)
+        else:
+            rh2 = math.radians(fh + 30)
+            pygame.draw.line(surface, C_ZWAARD, (sx,sy),
+                (int(sx+math.cos(rh2)*40), int(sy+math.sin(rh2)*40)), 5)
+
+        # HP balk
+        bw = r * 4
+        ratio = max(0, self.hp / self.max_hp)
+        pygame.draw.rect(surface, (80,20,20), (sx-bw//2, sy-r-14, bw, 8))
+        kl_hp = (220,60,60) if not self.fase2 else (255,100,20)
+        pygame.draw.rect(surface, kl_hp, (sx-bw//2, sy-r-14, int(bw*ratio), 8))
+        pygame.draw.rect(surface, (200,180,150), (sx-bw//2, sy-r-14, bw, 8), 1)
 
 
 class Pijl:

@@ -171,8 +171,8 @@ class LevelManager:
     def is_gevecht(self): return self.kamer == "gevecht"
 
     def omschrijving(self, kamer_nr=None, totaal=None):
-        if self.is_rust:  return f"Floor {self.floor_nr}  â  Rustplaats"
-        if self.is_baas:  return f"Floor {self.floor_nr}  â  EINDBAAS!"
+        if self.is_rust:  return f"Floor {self.floor_nr}  -  Rustplaats"
+        if self.is_baas:  return f"Floor {self.floor_nr}  -  EINDBAAS!"
         if kamer_nr and totaal:
-            return f"Floor {self.floor_nr}  â  Kamer {kamer_nr}/{totaal}"
+            return f"Floor {self.floor_nr}  -  Kamer {kamer_nr}/{totaal}"
         return f"Floor {self.floor_nr}"
