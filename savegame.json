@@ -1,19 +1,11 @@
 {
-  "level": 3,
-  "xp": 267,
-  "gold": 102,
-  "ability_points": 0,
-  "stats": {
-    "hp": 3,
-    "stamina": 0,
-    "mana": 0,
-    "strength": 0,
-    "dexterity": 3,
-    "intelligence": 0
-  },
-  "wapen": "simpel_zwaard",
-  "gekochte_wapens": [
-    "simpel_zwaard",
-    "rapier"
-  ]
+  "wapen": "schild",
+  "items": [
+    "bloodthirst"
+  ],
+  "item_charges": {},
+  "actieve_effecten": {
+    "invis": 0,
+    "fire_potion": 0
+  }
 }

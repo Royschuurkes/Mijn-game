@@ -6,6 +6,7 @@ from kaart import (genereer_bos, teken_bos_tegel, teken_boom_object,
                    BOOM_PAL, KAART_B, KAART_H)
 from juice import ScreenShake, FreezeFrames, PartikelSysteem, SchadeCijferSysteem, HitFlash
 from level_manager import LevelManager, genereer_floor_graph, TEGENOVER
+from items import ITEMS, RARITY_KLEUR, RARITY_NAAM, kies_items
 import geluid
 
 
@@ -78,37 +79,76 @@ class BosScene:
         self.floor_portal_open = False
         # Sync level_mgr kamer type
         self.level_mgr.kamer = kamer["type"]
-        # Vijanden
+        # Vijanden — spawn per groep geclusterd
         self.vijanden = []
+        self.kampvuur_posities = []  # (x, y) voor archer-groep kampvuren
         if not kamer["gecleared"]:
-            for type_, hp_mult in kamer["vijanden_config"]:
-                self._spawn_vijand(type_, hp_mult, kamer["schade_mult"])
+            for groep in kamer["vijanden_config"]:
+                type_, aantal, hp_mult = groep
+                self._spawn_groep(type_, aantal, hp_mult, kamer["schade_mult"])
         else:
             self.floor_portal_open = (kamer["type"] == "baas")
-        # Fontein
-        self.fontein_pos = None
+        # Fontein + item pedestal
+        self.fontein_pos    = None
         self.fontein_gebruikt = kamer.get("fontein_gebruikt", False)
+        self.item_pedestal_pos = None
+        self.item_keuze_actief = False
+        self.item_keuze_opties = []
         if kamer["type"] == "rust":
             fx = KAART_B//2 * TILE + TILE//2
             fy = KAART_H//2 * TILE + TILE//2
             self.fontein_pos = (fx, fy)
+            if not kamer.get("item_gepakt", False):
+                # Pedestal links van de fontein
+                self.item_pedestal_pos = (fx - 100, fy)
 
-    def _spawn_vijand(self, type_, hp_mult, schade_mult):
+    def _spawn_groep(self, type_, aantal, hp_mult, schade_mult):
+        """Spawn een groep vijanden geclusterd op één locatie."""
         sp = self.speler
-        for _ in range(100):
+        # Zoek een vrije centerpositie ver genoeg van de speler
+        cx, cy = sp.x, sp.y
+        for _ in range(200):
             hoek = random.uniform(0, math.pi*2)
-            d = random.randint(200, 420)
-            wx = sp.x + math.cos(hoek)*d
-            wy = sp.y + math.sin(hoek)*d
-            if self.tile_op(int(wx//TILE), int(wy//TILE)) in (GRAS, PAD, STRUIK):
-                self.vijanden.append(Vijand(wx, wy, type_, hp_mult, schade_mult))
-                return
+            d    = random.randint(280, 460)
+            tx   = sp.x + math.cos(hoek)*d
+            ty   = sp.y + math.sin(hoek)*d
+            if self.tile_op(int(tx//TILE), int(ty//TILE)) in (GRAS, PAD, STRUIK):
+                cx, cy = tx, ty
+                break
+
+        # Kampvuur positie voor archers
+        if type_ == "ranged" and aantal >= 2:
+            self.kampvuur_posities.append((cx, cy))
+
+        # Groep ID voor gedeelde aggro
+        groep_id = random.randint(1000, 9999)
+
+        # Spawn individuele vijanden rondom het center
+        WOLF_OFFSETS  = [(0,0), (-28, 16), (28, 16), (-20,-20), (20,-20)]
+        RANGE_OFFSETS = [(0,0), (-32, 0),  (32, 0),  (0,-36),   (0, 36)]
+        offsets = WOLF_OFFSETS if type_ == "wolf" else RANGE_OFFSETS
+
+        for i in range(aantal):
+            ox, oy = offsets[i % len(offsets)]
+            for _ in range(50):
+                wx = cx + ox + random.uniform(-8, 8)
+                wy = cy + oy + random.uniform(-8, 8)
+                if self.tile_op(int(wx//TILE), int(wy//TILE)) in (GRAS, PAD, STRUIK):
+                    v = Vijand(wx, wy, type_, hp_mult, schade_mult)
+                    v.groep_id = groep_id
+                    # Stagger acd zodat ze niet synchroon aanvallen
+                    v.acd = random.randint(0, 60)
+                    self.vijanden.append(v)
+                    break
 
     def geblokkeerd(self, tx, ty): return self.tile_op(tx, ty) == BOOM
 
     def _check_deur_exit(self):
         sp = self.speler
         kamer = self.floor_graph[self.huidige_pos]
+        # Deuren op slot zolang vijanden leven
+        if not kamer["gecleared"]:
+            return None
         my = KAART_H // 2; mx = KAART_B // 2
         speler_ty = sp.y / TILE; speler_tx = sp.x / TILE
         checks = [
@@ -121,10 +161,7 @@ class BosScene:
             if richting not in kamer["deuren"]: continue
             if not (pos_check and gang_check): continue
             buur_pos = kamer["buren"][richting]
-            buur = self.floor_graph[buur_pos]
-            # Open als huidige kamer gecleared OF buur al bezocht (kan altijd terug)
-            if kamer["gecleared"] or buur["bezocht"]:
-                return richting, buur_pos
+            return richting, buur_pos
         return None
 
     def run(self):
@@ -136,8 +173,24 @@ class BosScene:
                 if e.type == pygame.QUIT: return "quit", self.save
                 if e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE:
                     sla_op(self.save); return "hub", self.save
+                if e.type == pygame.KEYDOWN and e.key == pygame.K_q:
+                    self._gebruik_actief_item()
+                # Item keuze scherm: klik op 1/2/3 of kaart
+                if self.item_keuze_actief and e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+                    self._verwerk_item_klik(e.pos)
+                if self.item_keuze_actief and e.type == pygame.KEYDOWN and e.key in (
+                        pygame.K_1, pygame.K_2, pygame.K_3):
+                    idx = e.key - pygame.K_1
+                    if idx < len(self.item_keuze_opties):
+                        self._pak_item(self.item_keuze_opties[idx])
             if self.freeze.update():
                 self._teken(); continue
+            # Item keuze scherm — game gepauzeerd
+            if self.item_keuze_actief:
+                self._teken()
+                self._teken_item_keuze()
+                pygame.display.flip()
+                continue
             # Overgangsanimatie
             if self.overgang_timer > 0:
                 self.overgang_timer -= 1
@@ -151,8 +204,8 @@ class BosScene:
                         pos, richting = self._pending_kamer
                         self._laad_kamer(pos, verplaatsing=richting)
                 continue
-            blok = pygame.mouse.get_pressed()[2] and self.speler._heeft_schild()
-            self.speler.verwerk_events(events)
+            blok = pygame.mouse.get_pressed()[2] and self.speler._heeft_schild() and not self.speler.schild_geblokt
+            self.speler.verwerk_events(events, blok)
             # Camera smoothing
             self.cam_x += (self.speler.x - SCREEN_W/2 - self.cam_x) * 0.12
             self.cam_y += (self.speler.y - SCREEN_H/2 - self.cam_y) * 0.12
@@ -169,29 +222,36 @@ class BosScene:
                     self.partikels.dodge_spoor(self.speler.x, self.speler.y)
             else:
                 self.dodge_trail_t = 0
-            for (v, schade) in self.speler.zwaard_hits(self.vijanden):
+            for (v, schade, kb_nx, kb_ny) in self.speler.zwaard_hits(self.vijanden):
                 hoek = math.degrees(math.atan2(v.y-self.speler.y, v.x-self.speler.x))
                 self.partikels.zwaard_vonken(v.x, v.y, hoek)
-                self.freeze.start(2); self.shake.start(kracht=4, duur=8)
+                is_finisher = (self.speler.combo_stap == 3 and not self.speler.is_dash_strike)
+                if is_finisher:
+                    self.freeze.start(5); self.shake.start(kracht=9, duur=14)
+                    self.flash.start(kracht=40)
+                    # Ring burst partikel
+                    self.partikels.dood_explosie(v.x, v.y, (255,200,50))
+                else:
+                    self.freeze.start(2); self.shake.start(kracht=4, duur=8)
                 self.cijfers.voeg_toe(v.x, v.y-20, schade)
                 geluid.speel("zwaard_hit")
-                dood = v.krijg_schade(schade, self.speler.x, self.speler.y)
+                # Burning kans bij fire_damage of fire_potion
+                heeft_vuur = self.speler.heeft_item("fire_damage") or self.speler.heeft_actief_effect("fire_potion")
+                if heeft_vuur and random.random() < 0.30 and v.burning_t == 0:
+                    v.burning_t    = 360   # 6 sec
+                    v.burning_tick = 120
+                dood = v.krijg_schade_swing(schade, kb_nx, kb_ny)
                 if dood:
-                    kl = (220,60,220) if v.type=="baas" else (C_MELEE if v.type=="melee" else (200,130,50 if v.type=="wolf" else C_RANGED))
+                    kl = (220,60,220) if v.type=="baas" else (200,130,50) if v.type=="wolf" else C_RANGED
                     self.partikels.dood_explosie(v.x, v.y, kl)
                     self.shake.start(kracht=8 if v.type=="baas" else 6, duur=16)
                     geluid.speel("baas_dood" if v.type=="baas" else "vijand_dood")
-                    goud = random.randint(GOLD_MIN, GOLD_MAX) * (5 if v.type=="baas" else 1)
-                    xp   = XP_PER_VIJAND * (4 if v.type=="baas" else 1)
-                    self.save["gold"] += goud
-                    leveled = voeg_xp_toe(self.save, xp)
-                    self.cijfers.voeg_toe(v.x, v.y-40, goud, is_goud=True)
-                    self.cijfers.voeg_toe(v.x, v.y-20, xp,   is_xp=True)
-                    if leveled:
-                        lvl_tekst = "LEVEL UP! " + str(self.save["level"])
-                        self.cijfers.voeg_toe(self.speler.x, self.speler.y-50,
-                            lvl_tekst, kleur_override=True)
-                        geluid.speel("level_up")
+                    # Bloodthirst: heal bij kill
+                    if self.speler.heeft_item("bloodthirst"):
+                        heal = 8
+                        self.speler.hp = min(self.speler.mhp, self.speler.hp + heal)
+                        self.cijfers.voeg_toe(self.speler.x, self.speler.y-40, f"+{heal} HP",
+                            kleur_override=True, kl_override=(80,220,120))
                     self.vijanden.remove(v)
             for (v, schade, kb) in self.speler.special_hits(self.vijanden):
                 hoek = math.degrees(math.atan2(v.y-self.speler.y, v.x-self.speler.x))
@@ -201,21 +261,10 @@ class BosScene:
                 geluid.speel("zwaard_hit")
                 dood = v.krijg_schade_knockback(schade, self.speler.x, self.speler.y, kb)
                 if dood:
-                    kl = (220,60,220) if v.type=="baas" else (C_MELEE if v.type=="melee" else (200,130,50 if v.type=="wolf" else C_RANGED))
+                    kl = (220,60,220) if v.type=="baas" else (200,130,50) if v.type=="wolf" else C_RANGED
                     self.partikels.dood_explosie(v.x, v.y, kl)
                     self.shake.start(kracht=8 if v.type=="baas" else 6, duur=16)
                     geluid.speel("baas_dood" if v.type=="baas" else "vijand_dood")
-                    goud = random.randint(GOLD_MIN, GOLD_MAX) * (5 if v.type=="baas" else 1)
-                    xp   = XP_PER_VIJAND * (4 if v.type=="baas" else 1)
-                    self.save["gold"] += goud
-                    leveled = voeg_xp_toe(self.save, xp)
-                    self.cijfers.voeg_toe(v.x, v.y-40, goud, is_goud=True)
-                    self.cijfers.voeg_toe(v.x, v.y-20, xp,   is_xp=True)
-                    if leveled:
-                        lvl_tekst = "LEVEL UP! " + str(self.save["level"])
-                        self.cijfers.voeg_toe(self.speler.x, self.speler.y-50,
-                            lvl_tekst, kleur_override=True)
-                        geluid.speel("level_up")
                     self.vijanden.remove(v)
             # Kamer gecleared?
             kamer = self.floor_graph[self.huidige_pos]
@@ -237,10 +286,18 @@ class BosScene:
                     self.speler.hp = min(self.speler.mhp, self.speler.hp + herstel)
                     self.fontein_gebruikt = True
                     kamer["fontein_gebruikt"] = True
-                    self.cijfers.voeg_toe(fx, fy-30, f"+{int(herstel)} HP",
-                        kleur_override=False, is_xp=True)
+                    self.cijfers.voeg_toe(fx, fy-30, f"+{int(herstel)} HP", kleur_override=True, kl_override=(80,220,120))
                     self.partikels.dood_explosie(fx, fy, (100,200,255))
                     geluid.speel("fontein")
+            # Item pedestal
+            if self.item_pedestal_pos and not self.item_keuze_actief:
+                px, py = self.item_pedestal_pos
+                if math.hypot(self.speler.x-px, self.speler.y-py) < 45:
+                    self.item_keuze_opties  = kies_items(3,
+                        self.save.get("items", []),
+                        self.save.get("item_charges", {}))
+                    self.item_keuze_actief  = True
+                    self.item_pedestal_pos  = None  # verberg pedestal
             # Deur transitie
             if self.overgang_timer == 0:
                 result = self._check_deur_exit()
@@ -248,24 +305,54 @@ class BosScene:
                     richting, buur_pos = result
                     self._pending_kamer = (buur_pos, richting)
                     self.overgang_timer = 35
+            # Gedeelde aggro: als één groepsgenoot aggro krijgt, wakker de rest
+            for v in self.vijanden:
+                if v.aggro and v.groep_id:
+                    for v2 in self.vijanden:
+                        if v2.groep_id == v.groep_id and not v2.aggro:
+                            d = math.hypot(v2.x-v.x, v2.y-v.y)
+                            if d < 200:
+                                v2.acd = max(v2.acd, random.randint(20, 70))
+                                v2.aggro = True
+
             # Vijanden AI
             fh_sp = math.degrees(math.atan2(self.speler.fy, self.speler.fx))
+            blok_actief = blok and not self.speler.schild_geblokt
             for v in self.vijanden:
                 aanval = v.update(self.speler.x, self.speler.y, self.geblokkeerd,
-                                  fh_sp, blok, self.speler.flinch_cd)
+                                  fh_sp, blok_actief, self.speler.flinch_cd)
                 if aanval:
                     if aanval[0] == "melee":
                         _, vx, vy, sch = aanval
-                        geraakt = self.speler.krijg_schade(sch, vx, vy)
-                        if geraakt:
-                            hoek = math.degrees(math.atan2(self.speler.y-vy, self.speler.x-vx))
-                            self.partikels.bloed_spat(self.speler.x, self.speler.y, hoek)
-                            self.shake.start(kracht=8, duur=14)
-                            self.freeze.start(3)
-                            self.flash.start(kracht=60)
-                            self.cijfers.voeg_toe(self.speler.x, self.speler.y-30,
-                                sch, is_speler_schade=True)
-                            geluid.speel("speler_geraakt")
+                        # rvn = richting van aanval naar speler; speler moet NAAR vijand kijken
+                        rvn = math.degrees(math.atan2(vy-self.speler.y, vx-self.speler.x))
+                        if blok_actief and abs(hoek_diff(rvn, fh_sp)) < 70:
+                            geblokt = self.speler.verwerk_blok(vx, vy)
+                            self.partikels.zwaard_vonken(self.speler.x, self.speler.y, rvn)
+                            if geblokt:
+                                self.shake.start(kracht=6, duur=10)
+                                self.freeze.start(3)
+                                geluid.speel("schild_blok")
+                            else:
+                                # Guard break — schade toch nemen
+                                self.speler.krijg_schade(sch, vx, vy)
+                                self.shake.start(kracht=10, duur=18)
+                                self.freeze.start(4)
+                                self.flash.start(kracht=80)
+                                self.cijfers.voeg_toe(self.speler.x, self.speler.y-30,
+                                    "GUARD BREAK", kleur_override=True)
+                                geluid.speel("speler_geraakt")
+                        else:
+                            geraakt = self.speler.krijg_schade(sch, vx, vy)
+                            if geraakt:
+                                hoek = math.degrees(math.atan2(self.speler.y-vy, self.speler.x-vx))
+                                self.partikels.bloed_spat(self.speler.x, self.speler.y, hoek)
+                                self.shake.start(kracht=8, duur=14)
+                                self.freeze.start(3)
+                                self.flash.start(kracht=60)
+                                self.cijfers.voeg_toe(self.speler.x, self.speler.y-30,
+                                    sch, is_speler_schade=True)
+                                geluid.speel("speler_geraakt")
                     elif aanval[0] == "pijl":
                         _, px, py, dx, dy, psch = aanval
                         self.pijlen.append(Pijl(px, py, dx, dy, psch))
@@ -275,10 +362,21 @@ class BosScene:
                 dist = math.hypot(p.x-self.speler.x, p.y-self.speler.y)
                 if dist < 18:
                     ph = math.degrees(math.atan2(p.dy, p.dx))
-                    if blok and abs(hoek_diff(ph+180, fh_sp)) < 60:
+                    if blok_actief and abs(hoek_diff(ph+180, fh_sp)) < 60:
+                        geblokt = self.speler.verwerk_blok(p.x-p.dx*5, p.y-p.dy*5,
+                                                           stamina_kosten=STAMINA_SCHILD_PIJL)
                         self.partikels.zwaard_vonken(p.x, p.y, ph+180)
-                        self.shake.start(kracht=3, duur=6)
-                        geluid.speel("schild_blok")
+                        if geblokt:
+                            self.shake.start(kracht=4, duur=7)
+                            geluid.speel("schild_blok")
+                        else:
+                            self.speler.krijg_schade(p.schade, p.x-p.dx*5, p.y-p.dy*5)
+                            self.shake.start(kracht=10, duur=18)
+                            self.freeze.start(4)
+                            self.flash.start(kracht=80)
+                            self.cijfers.voeg_toe(self.speler.x, self.speler.y-30,
+                                "GUARD BREAK", kleur_override=True)
+                            geluid.speel("speler_geraakt")
                     else:
                         geraakt = self.speler.krijg_schade(p.schade, p.x-p.dx*5, p.y-p.dy*5)
                         if geraakt:
@@ -307,7 +405,6 @@ class BosScene:
             self.cijfers.update()
             geluid.update_geluid()
             if self.kamer_intro_timer > 0: self.kamer_intro_timer -= 1
-            if in_struik and self.speler.dodge_t == 0: geluid.speel("struik")
             _keys = pygame.key.get_pressed()
             _beweegt = any([_keys[pygame.K_w], _keys[pygame.K_s],
                             _keys[pygame.K_a], _keys[pygame.K_d]])
@@ -336,17 +433,23 @@ class BosScene:
         for richting in kamer["deuren"]:
             buur_pos = kamer["buren"][richting]
             buur = self.floor_graph[buur_pos]
-            deur_open = kamer["gecleared"] or buur["bezocht"]
-            kl = (80,200,80) if deur_open else (180,60,60)
+            deur_open = kamer["gecleared"]
+            if not deur_open:
+                kl = (160, 40, 40)  # rood slot
+            elif buur["type"] == "rust":
+                kl = (60, 100, 200)
+            elif buur["type"] == "baas":
+                kl = (180, 40, 180)
+            else:
+                kl = (80, 200, 80)
             if richting == "E": dx=(KAART_B-1)*TILE-cam_x+ox; dy=(KAART_H//2)*TILE-cam_y+oy
             elif richting == "W": dx=0-cam_x+ox+4; dy=(KAART_H//2)*TILE-cam_y+oy
             elif richting == "N": dx=(KAART_B//2)*TILE-cam_x+ox; dy=0-cam_y+oy+4
             else: dx=(KAART_B//2)*TILE-cam_x+ox; dy=(KAART_H-1)*TILE-cam_y+oy
             pygame.draw.circle(self.screen, kl, (dx, dy), 10)
-            if buur["type"] == "rust":
-                pygame.draw.circle(self.screen, (80,140,220), (dx,dy), 10)
-            elif buur["type"] == "baas":
-                pygame.draw.circle(self.screen, (220,60,220), (dx,dy), 10)
+            # Slot-icoon als deur dicht is
+            if not deur_open:
+                pygame.draw.circle(self.screen, (220, 60, 60), (dx, dy), 10, 2)
         if self.fontein_pos:
             fx = int(self.fontein_pos[0]-cam_x)+ox
             fy = int(self.fontein_pos[1]-cam_y)+oy
@@ -364,6 +467,26 @@ class BosScene:
             pt = self.font_s.render("VOLGENDE FLOOR", True, (220,180,255))
             self.screen.blit(pt, (px-pt.get_width()//2, py-42))
         for p in self.pijlen: p.teken(self.screen, cam_x-ox, cam_y-oy)
+        # Kampvuren tekenen
+        for kx, ky in getattr(self, 'kampvuur_posities', []):
+            sx = int(kx-cam_x)+ox; sy = int(ky-cam_y)+oy
+            puls = 0.7 + 0.3*math.sin(self.tik * 0.18)
+            r_vuur = int(12 * puls)
+            vuur_surf = pygame.Surface((r_vuur*2+4, r_vuur*2+4), pygame.SRCALPHA)
+            pygame.draw.circle(vuur_surf, (255, int(140*puls), 20, 160), (r_vuur+2, r_vuur+2), r_vuur)
+            pygame.draw.circle(vuur_surf, (255, 220, 80, 120), (r_vuur+2, r_vuur+2), max(2, r_vuur-4))
+            self.screen.blit(vuur_surf, (sx-r_vuur-2, sy-r_vuur-2))
+        # Item pedestal
+        if self.item_pedestal_pos:
+            px = int(self.item_pedestal_pos[0]-cam_x)+ox
+            py = int(self.item_pedestal_pos[1]-cam_y)+oy
+            puls_kl = puls_kleur((120,90,30),(255,210,80), self.tik, snelheid=0.12)
+            pygame.draw.rect(self.screen, (60,50,35), (px-18,py-8,36,16), border_radius=4)
+            pygame.draw.rect(self.screen, (100,80,40),(px-18,py-8,36,16), 2, border_radius=4)
+            pygame.draw.circle(self.screen, puls_kl, (px, py-18), 12)
+            pygame.draw.circle(self.screen, (255,240,150), (px, py-18), 12, 2)
+            hint = self.font_s.render("Loopnaartoe", True, (200,180,100))
+            self.screen.blit(hint, (px - hint.get_width()//2, py - 40))
         self.partikels.teken(self.screen, cam_x-ox, cam_y-oy)
         for v in [v for v in self.vijanden if v.y <= sp.y]:
             v.teken(self.screen, cam_x-ox, cam_y-oy)
@@ -441,7 +564,8 @@ class BosScene:
         self.screen.blit(self.font_s.render(
             f"HP  {int(sp.hp)}/{int(sp.mhp)}", True,(255,255,255)),(14,11))
         pygame.draw.rect(self.screen, (20,60,20),  (10,32,bw,12))
-        pygame.draw.rect(self.screen, (60,200,80), (10,32,int(bw*sp.sta/sp.msta),12))
+        sta_kl_bar = (220,60,60) if self.speler.schild_geblokt else (60,200,80)
+        pygame.draw.rect(self.screen, sta_kl_bar, (10,32,int(bw*sp.sta/sp.msta),12))
         pygame.draw.rect(self.screen, (255,255,255),(10,32,bw,12),2)
         sta_kl = (150,150,150) if sp.sta_delay>0 else (255,255,255)
         self.screen.blit(self.font_s.render(
@@ -455,7 +579,6 @@ class BosScene:
         vijanden_over = len(self.vijanden)
         regels = [
             (f"Floor {self.level_mgr.floor_nr}  Kamer {n_bezocht}/{n_totaal}", (200,190,120)),
-            ("Level " + str(s["level"]) + "  Gold: " + str(s["gold"]), (200,190,120)),
             (f"Dodge: {ds}", dc),
         ]
         if vijanden_over > 0 and not kamer["gecleared"]:
@@ -466,6 +589,130 @@ class BosScene:
         et = self.font_s.render("ESC = terug naar kasteel", True,(140,140,140))
         self.screen.blit(et,(SCREEN_W-et.get_width()-130,10))
 
+        # Item HUD — rechtsonder
+        items      = self.save.get("items", [])
+        charges    = self.save.get("item_charges", {})
+        effecten   = self.save.get("actieve_effecten", {})
+        alle_items = [(k, None)       for k in items] + \
+                     [(k, charges[k]) for k in charges if charges[k] > 0]
+        if alle_items:
+            ix = SCREEN_W - 10
+            for key, ch in reversed(alle_items):
+                item = ITEMS[key]
+                # Achtergrond
+                ix -= 38
+                is_actief = effecten.get(key.replace("_potion",""), 0) > 0 or \
+                            effecten.get("fire_potion" if "fire" in key else "", 0) > 0
+                rand_kl = (255,220,80) if is_actief else item["kleur"]
+                pygame.draw.circle(self.screen, (30,25,20), (ix+14, SCREEN_H-30), 16)
+                pygame.draw.circle(self.screen, item["kleur"], (ix+14, SCREEN_H-30), 14)
+                pygame.draw.circle(self.screen, rand_kl, (ix+14, SCREEN_H-30), 14, 2)
+                if ch is not None:
+                    ct = self.font_s.render(str(ch), True, (255,255,255))
+                    self.screen.blit(ct, (ix+14-ct.get_width()//2, SCREEN_H-20))
+        if alle_items:
+            qt = self.font_s.render("Q = gebruik item", True, (130,130,130))
+            self.screen.blit(qt, (SCREEN_W - qt.get_width() - 10, SCREEN_H - 55))
+
+    def _gebruik_actief_item(self):
+        """Gebruik het eerste beschikbare actieve item (Q toets)."""
+        charges = self.save.get("item_charges", {})
+        effecten = self.save.setdefault("actieve_effecten", {"invis": 0, "fire_potion": 0})
+        # Prioriteit: invis potion > health potion > fire potion
+        volgorde = ["invis_potion", "health_potion", "fire_potion"]
+        for key in volgorde:
+            if charges.get(key, 0) > 0:
+                item = ITEMS[key]
+                if key == "invis_potion":
+                    effecten["invis"] = item["duur"]
+                    charges[key] -= 1
+                    self.cijfers.voeg_toe(self.speler.x, self.speler.y-50,
+                        "ONKWETSBAAR!", kleur_override=True, kl_override=(100,200,255))
+                elif key == "health_potion":
+                    heal = item["heal"]
+                    self.speler.hp = min(self.speler.mhp, self.speler.hp + heal)
+                    charges[key] -= 1
+                    self.cijfers.voeg_toe(self.speler.x, self.speler.y-50,
+                        f"+{heal} HP", kleur_override=True, kl_override=(80,220,120))
+                elif key == "fire_potion":
+                    effecten["fire_potion"] = item["duur"]
+                    charges[key] -= 1
+                    self.cijfers.voeg_toe(self.speler.x, self.speler.y-50,
+                        "VUUR ACTIEF!", kleur_override=True, kl_override=(255,120,30))
+                if charges[key] <= 0:
+                    del charges[key]
+                return
+
+    def _pak_item(self, key):
+        """Voeg gekozen item toe aan save."""
+        item = ITEMS[key]
+        self.save.setdefault("items", [])
+        self.save.setdefault("item_charges", {})
+        if item["type"] == "passief":
+            if key not in self.save["items"]:
+                self.save["items"].append(key)
+        else:
+            # Actief: charges ophogen
+            bestaand = self.save["item_charges"].get(key, 0)
+            self.save["item_charges"][key] = bestaand + item["charges"]
+        # Markeer kamer als gepakt
+        kamer = self.floor_graph[self.huidige_pos]
+        kamer["item_gepakt"] = True
+        self.item_keuze_actief = False
+        self.item_keuze_opties = []
+
+    def _verwerk_item_klik(self, pos):
+        kaarten = self._item_keuze_rects()
+        for i, rect in enumerate(kaarten):
+            if rect.collidepoint(pos) and i < len(self.item_keuze_opties):
+                self._pak_item(self.item_keuze_opties[i])
+                return
+
+    def _item_keuze_rects(self):
+        n = len(self.item_keuze_opties)
+        breedte = 180; hoogte = 240; marge = 20
+        totaal = n * breedte + (n-1) * marge
+        sx = SCREEN_W//2 - totaal//2
+        sy = SCREEN_H//2 - hoogte//2
+        return [pygame.Rect(sx + i*(breedte+marge), sy, breedte, hoogte) for i in range(n)]
+
+    def _teken_item_keuze(self):
+        """Overlay met 3 item kaarten om uit te kiezen."""
+        overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 160))
+        self.screen.blit(overlay, (0, 0))
+        t = self.font_g.render("Kies een item", True, (220, 200, 120))
+        self.screen.blit(t, (SCREEN_W//2 - t.get_width()//2, 80))
+        hint = self.font_s.render("Klik of druk 1 / 2 / 3", True, (140, 140, 140))
+        self.screen.blit(hint, (SCREEN_W//2 - hint.get_width()//2, 115))
+        rects = self._item_keuze_rects()
+        mp = pygame.mouse.get_pos()
+        for i, key in enumerate(self.item_keuze_opties):
+            item  = ITEMS[key]
+            rect  = rects[i]
+            hover = rect.collidepoint(mp)
+            r_kl  = item["kleur"] if hover else item["kleur_dim"]
+            bg_kl = (40, 35, 30) if hover else (25, 22, 18)
+            pygame.draw.rect(self.screen, bg_kl,   rect, border_radius=10)
+            pygame.draw.rect(self.screen, r_kl,    rect, 2 if not hover else 3, border_radius=10)
+            # Rarity badge
+            rar_kl = RARITY_KLEUR[item["rarity"]]
+            rar_t  = self.font_s.render(RARITY_NAAM[item["rarity"]], True, rar_kl)
+            self.screen.blit(rar_t, (rect.x + 10, rect.y + 10))
+            # Item kleur cirkel
+            pygame.draw.circle(self.screen, item["kleur"], (rect.centerx, rect.y + 75), 28)
+            pygame.draw.circle(self.screen, (255,255,255), (rect.centerx, rect.y + 75), 28, 2)
+            # Nummer
+            num_t = self.font_m.render(str(i+1), True, (200,200,200))
+            self.screen.blit(num_t, (rect.x + rect.width - 22, rect.y + 10))
+            # Naam
+            naam_t = self.font_m.render(item["naam"], True, (220, 200, 150))
+            self.screen.blit(naam_t, (rect.centerx - naam_t.get_width()//2, rect.y + 115))
+            # Beschrijving (meerdere regels)
+            for j, regel in enumerate(item["beschrijving"].split("\n")):
+                rt = self.font_s.render(regel, True, (160, 155, 145))
+                self.screen.blit(rt, (rect.centerx - rt.get_width()//2, rect.y + 145 + j * 18))
+
     def game_over_scherm(self):
         knop = pygame.Rect(SCREEN_W//2-130, SCREEN_H//2+60, 260, 50)
         while True:
@@ -475,8 +722,7 @@ class BosScene:
             s = self.save
             for i,(r,kl) in enumerate([
                 (f"Gevallen op floor {self.level_mgr.floor_nr}", (180,80,80)),
-                ("Gold: " + str(s["gold"]) + "  |  Level: " + str(s["level"]), (160,160,160)),
-                ("Je progressie is bewaard!", (200,200,120)),
+                ("Je kunt het opnieuw proberen!", (200,200,120)),
             ]):
                 rt = self.font_m.render(r,True,kl)
                 self.screen.blit(rt,(SCREEN_W//2-rt.get_width()//2, SCREEN_H//2-30+i*30))
@@ -491,4 +737,8 @@ class BosScene:
                 if e.type==pygame.QUIT: return "quit"
                 if e.type==pygame.KEYDOWN and e.key==pygame.K_ESCAPE: return "quit"
                 if e.type==pygame.MOUSEBUTTONDOWN and knop.collidepoint(e.pos):
+                    # Items resetten voor nieuwe run
+                    self.save["items"] = []
+                    self.save["item_charges"] = {}
+                    self.save["actieve_effecten"] = {"invis": 0, "fire_potion": 0}
                     return "hub"

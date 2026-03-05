@@ -174,13 +174,9 @@ class SchadeCijferSysteem:
     def __init__(self):
         self.cijfers = []
 
-    def voeg_toe(self, x, y, schade, is_speler_schade=False, is_goud=False, is_xp=False, kleur_override=False):
+    def voeg_toe(self, x, y, schade, is_speler_schade=False, kleur_override=False, kl_override=(255,220,50)):
         if kleur_override:
-            self.cijfers.append(SchadeCijfer(x, y, str(schade), (255,220,50), groot=True))
-        elif is_goud:
-            self.cijfers.append(SchadeCijfer(x, y, f"+{schade}g", (220,200,50)))
-        elif is_xp:
-            self.cijfers.append(SchadeCijfer(x, y+20, f"+{schade}xp", (100,220,150)))
+            self.cijfers.append(SchadeCijfer(x, y, str(schade), kl_override, groot=True))
         elif is_speler_schade:
             self.cijfers.append(SchadeCijfer(x, y, f"-{int(schade)}", (255,80,80), groot=True))
         else:

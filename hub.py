@@ -1,5 +1,5 @@
 # hub.py - Binnenplein (kasteel hub wereld)
-import math, pygame, geluid
+import math, pygame
 from opslaan import *
 
 # Hub tile types (apart van de bos types)
@@ -58,7 +58,7 @@ def maak_hub_kaart():
 
 # Interacteerbare objecten: (tile_x, tile_y, naam, kleur, beschrijving)
 INTERACTABLES = [
-    (4,  3, "blacksmith", (180,120,50), "Smid"),
+    (4,  3, "standbeeld", (180,160,100), "Standbeeld"),
     (20, 3, "library",    (80, 120,180), "Bibliotheek"),
     (11, 7, "statue",     (200,200,180), "Standbeeld"),
 ]
@@ -119,19 +119,17 @@ class HubScene:
                             self.menu_open=nb[2]
                             menu_events=[]  # lege events zodat menu niet meteen sluit
 
-            if self.menu_open=="statue":
-                resultaat=self.teken_stat_menu(menu_events)
-                if resultaat=="sluit": self.menu_open=None
+            if self.menu_open == "statue" or self.menu_open == "standbeeld":
+                resultaat = self.teken_placeholder("Standbeeld", "Dit standbeeld straalt kracht uit.", menu_events)
+                if resultaat == "sluit": self.menu_open = None
                 pygame.display.flip(); continue
-            elif self.menu_open=="blacksmith":
-                from smid import SmidScene
-                resultaat = SmidScene(self.screen, self.clock, self.save).run()
+            elif self.menu_open == "library":
+                resultaat = self.teken_placeholder("Bibliotheek", "Hier kun je later\nmagische spreuken leren!", menu_events)
+                if resultaat == "sluit": self.menu_open = None
+                pygame.display.flip(); continue
+            elif self.menu_open is not None:
+                # Onbekend menu — sluit direct
                 self.menu_open = None
-                if resultaat == "quit": return "quit"
-                continue
-            elif self.menu_open=="library":
-                self.teken_placeholder("Bibliotheek","Hier kun je later\nmagische spreuken leren!",menu_events)
-                pygame.display.flip(); continue
 
             if self.menu_open is None:
                 keys=pygame.key.get_pressed()
@@ -151,11 +149,6 @@ class HubScene:
                 ny=self.sp_y+my*speed
                 if not any(self.geblokkeerd(int((self.sp_x+ox)//TILE),int((ny+oy)//TILE)) for ox in(-r,r) for oy in(-r,r)):
                     self.sp_y=ny
-                    # Geluid
-            geluid.update_geluid()
-            beweegt = abs(mx) > 0.1 or abs(my) > 0.1
-            if beweegt:
-                geluid.speel("stap")
 
                 if self.bij_exit(): return "bos"
 
@@ -221,95 +214,8 @@ class HubScene:
             self.screen.blit(t,(SCREEN_W//2-t.get_width()//2,SCREEN_H//2-60))
 
     def teken_hub_hud(self):
-        s=self.save
-        regels=[
-            f"Level: {s['level']}",
-            f"XP: {s['xp']} / {xp_nodig(s['level'])}",
-            f"Gold: {s['gold']}",
-            f"Ability points: {s['ability_points']}",
-        ]
-        for i,r in enumerate(regels):
-            t=self.font_s.render(r,True,(220,220,180))
-            self.screen.blit(t,(10,10+i*20))
-
-    def teken_stat_menu(self, events):
-        overlay=pygame.Surface((SCREEN_W,SCREEN_H),pygame.SRCALPHA)
-        overlay.fill((0,0,0,180))
-        self.screen.blit(overlay,(0,0))
-
-        pw=500; ph=400
-        px=(SCREEN_W-pw)//2; py=(SCREEN_H-ph)//2
-        pygame.draw.rect(self.screen,(40,35,30),(px,py,pw,ph),border_radius=10)
-        pygame.draw.rect(self.screen,(180,160,100),(px,py,pw,ph),2,border_radius=10)
-
-        t=self.font_g.render("Standbeeld - Ability Points",True,(220,200,100))
-        self.screen.blit(t,(px+pw//2-t.get_width()//2,py+15))
-
-        pt=self.font_m.render(f"Beschikbare punten: {self.save['ability_points']}",True,(200,220,150))
-        self.screen.blit(pt,(px+20,py+55))
-
-        stats=[
-            ("hp",       "HP",           f"(+{HP_PER_PUNT:.0f} max HP)"),
-            ("stamina",  "Stamina",       f"(+{STA_PER_PUNT:.0f} max Stamina)"),
-            ("mana",     "Mana",          f"(+{MANA_PER_PUNT:.0f} max Mana)"),
-            ("strength", "Strength",      "(+schade & block)"),
-            ("dexterity","Dexterity",     "(+dodge afstand)"),
-            ("intelligence","Intelligence","(+magie schade)"),
-        ]
-        knoppen=[]
-        for i,(key,naam,info) in enumerate(stats):
-            y=py+90+i*48
-            val=self.save["stats"][key]
-            # Stat naam + waarde
-            nt=self.font_m.render(f"{naam}: {val}",True,(220,220,200))
-            self.screen.blit(nt,(px+20,y+8))
-            it=self.font_s.render(info,True,(150,150,130))
-            self.screen.blit(it,(px+190,y+12))
-            # + knop
-            knop=pygame.Rect(px+pw-70,y+4,40,32)
-            kk=(80,160,80) if knop.collidepoint(pygame.mouse.get_pos()) and self.save["ability_points"]>0 else (45,100,45)
-            pygame.draw.rect(self.screen,kk,knop,border_radius=5)
-            pygame.draw.rect(self.screen,(120,200,120),knop,2,border_radius=5)
-            pt2=self.font_m.render("+",True,(255,255,255))
-            self.screen.blit(pt2,(knop.centerx-pt2.get_width()//2,knop.centery-pt2.get_height()//2))
-            knoppen.append((knop,key))
-
-        # Sluit knop
-        sluit=pygame.Rect(px+pw//2-60,py+ph-50,120,36)
-        sk=(100,60,60) if sluit.collidepoint(pygame.mouse.get_pos()) else (70,40,40)
-        pygame.draw.rect(self.screen,sk,sluit,border_radius=6)
-        pygame.draw.rect(self.screen,(180,100,100),sluit,2,border_radius=6)
-        st=self.font_m.render("Sluiten",True,(255,200,200))
-        self.screen.blit(st,(sluit.centerx-st.get_width()//2,sluit.centery-st.get_height()//2))
-
-            # Reset knop rechtsboven in het menu
-        reset = pygame.Rect(px+pw-115, py+10, 105, 28)
-        rk = (130,40,40) if reset.collidepoint(pygame.mouse.get_pos()) else (80,25,25)
-        pygame.draw.rect(self.screen, rk, reset, border_radius=5)
-        pygame.draw.rect(self.screen, (200,60,60), reset, 2, border_radius=5)
-        rst = self.font_s.render("RESET ALLES", True, (255,160,160))
-        self.screen.blit(rst, (reset.centerx-rst.get_width()//2, reset.centery-rst.get_height()//2))
-        
-        for e in events:
-            if e.type==pygame.MOUSEBUTTONDOWN and e.button==1:
-                for (knop,key) in knoppen:
-                    if knop.collidepoint(e.pos) and self.save["ability_points"]>0:
-                        self.save["stats"][key]+=1
-                        self.save["ability_points"]-=1
-                        sla_op(self.save)
-                if sluit.collidepoint(e.pos): return "sluit"
-                if reset.collidepoint(e.pos):
-                    self.save["level"] = 1
-                    self.save["xp"] = 0
-                    self.save["gold"] = 0
-                    self.save["ability_points"] = 0
-                    self.save["wapen"] = "simpel_zwaard"
-                    self.save["gekochte_wapens"] = ["simpel_zwaard"]
-                    for k in self.save["stats"]: self.save["stats"][k] = 0
-                    sla_op(self.save)
-                    return "sluit"
-            if e.type==pygame.KEYDOWN and e.key==pygame.K_e: return "sluit"
-            return None
+        t = self.font_s.render("Hub  —  WASD bewegen, E interacteren, portaal naar level", True, (220,220,180))
+        self.screen.blit(t, (10, 10))
 
     def teken_placeholder(self, titel, tekst, events):
         overlay=pygame.Surface((SCREEN_W,SCREEN_H),pygame.SRCALPHA)

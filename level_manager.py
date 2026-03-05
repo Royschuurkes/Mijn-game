@@ -15,10 +15,13 @@ FLOOR_DEFINITIES = {
         "kamers_min": 4, "kamers_max": 5,
         "rust_na": 3,
         "schade_mult": 1.0, "hp_mult": 1.0,
+        # Groepen: (type, aantal, hp_mult) — spawnen geclusterd
         "vijanden": [
-            [("wolf", 1.0), ("wolf", 1.0)],
-            [("wolf", 1.0), ("wolf", 1.0), ("wolf", 1.0)],
-            [("wolf", 1.0), ("melee", 1.0)],
+            [("wolf",   2, 1.0)],
+            [("wolf",   3, 1.0)],
+            [("wolf",   1, 1.0), ("ranged", 2, 1.0)],
+            [("ranged", 2, 1.0)],
+            [("wolf",   1, 1.0)],
         ],
     },
     2: {
@@ -26,10 +29,10 @@ FLOOR_DEFINITIES = {
         "rust_na": 3,
         "schade_mult": 1.1, "hp_mult": 1.2,
         "vijanden": [
-            [("wolf", 1.2), ("wolf", 1.2), ("melee", 1.0)],
-            [("wolf", 1.2), ("ranged", 1.0), ("melee", 1.0)],
-            [("ranged", 1.0), ("ranged", 1.0), ("wolf", 1.2)],
-            [("melee", 1.2), ("melee", 1.2), ("wolf", 1.2)],
+            [("wolf",   2, 1.2), ("ranged", 1, 1.0)],
+            [("wolf",   1, 1.2), ("ranged", 2, 1.0)],
+            [("ranged", 3, 1.2)],
+            [("wolf",   3, 1.2)],
         ],
     },
     3: {
@@ -37,10 +40,10 @@ FLOOR_DEFINITIES = {
         "rust_na": 4,
         "schade_mult": 1.2, "hp_mult": 1.5,
         "vijanden": [
-            [("wolf", 1.5), ("wolf", 1.5), ("ranged", 1.2)],
-            [("wolf", 1.5), ("ranged", 1.2), ("ranged", 1.2), ("melee", 1.2)],
-            [("melee", 1.5), ("melee", 1.5), ("wolf", 1.5), ("ranged", 1.2)],
-            [("ranged", 1.5), ("ranged", 1.5), ("wolf", 1.5), ("wolf", 1.5)],
+            [("wolf",   3, 1.5), ("ranged", 1, 1.2)],
+            [("wolf",   1, 1.5), ("ranged", 3, 1.2)],
+            [("ranged", 2, 1.5), ("wolf",   2, 1.5)],
+            [("wolf",   4, 1.5)],
         ],
     },
     4: {
@@ -48,10 +51,9 @@ FLOOR_DEFINITIES = {
         "rust_na": 4,
         "schade_mult": 1.4, "hp_mult": 1.8,
         "vijanden": [
-            [("wolf", 1.8), ("wolf", 1.8), ("ranged", 1.5), ("melee", 1.5)],
-            [("melee", 1.8), ("melee", 1.8), ("wolf", 1.8), ("ranged", 1.5)],
-            [("ranged", 1.8), ("ranged", 1.8), ("wolf", 1.8), ("wolf", 1.8)],
-            [("wolf", 2.0), ("wolf", 2.0), ("wolf", 2.0), ("melee", 1.8)],
+            [("wolf",   2, 1.8), ("ranged", 2, 1.5)],
+            [("ranged", 4, 1.8)],
+            [("wolf",   3, 2.0), ("ranged", 1, 1.5)],
         ],
     },
 }
@@ -127,13 +129,14 @@ def genereer_floor_graph(floor_nr):
         if pos == baas_pos:
             ktype = "baas"
             hp    = round(fd["hp_mult"] * (1.0 + floor_nr * 0.2), 2)
-            vijanden = [("baas", hp)]
+            vijanden = [("baas", 1, hp)]   # groep van 1 baas
         elif pos == rust_pos:
             ktype = "rust"; vijanden = []
         else:
             ktype = "gevecht"
             comp  = random.choice(fd["vijanden"])
-            vijanden = [(t, round(h * fd["hp_mult"], 2)) for t, h in comp]
+            # Nieuw formaat: (type, aantal, hp_mult) per groep
+            vijanden = [(t, n, round(h * fd["hp_mult"], 2)) for t, n, h in comp]
 
         kamer_graph[pos] = {
             "type":             ktype,
@@ -144,6 +147,7 @@ def genereer_floor_graph(floor_nr):
             "gecleared":        ktype == "rust",
             "bezocht":          False,
             "fontein_gebruikt": False,
+            "item_gepakt":      False,   # item al opgepakt in rustkamer
             "kaart_data":       None,
         }
 

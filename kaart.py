@@ -28,10 +28,7 @@ def _boom_pilaar(kaart, cx, cy, straal=1):
                 _zet(kaart, cx+dx, cy+dy, BOOM)
 
 def _struik_plek(kaart, cx, cy, breedte=2, hoogte=2):
-    for dy in range(hoogte):
-        for dx in range(breedte):
-            if 0<=cx+dx<KAART_B and 0<=cy+dy<KAART_H and kaart[cy+dy][cx+dx]==GRAS:
-                _zet(kaart, cx+dx, cy+dy, STRUIK)
+    pass  # struiken verwijderd
 
 def _maak_basis():
     kaart = [[GRAS]*KAART_B for _ in range(KAART_H)]
@@ -119,7 +116,7 @@ def genereer_bos(deuren=None):
     spawn_posities = {}  # richting -> (tile_x, tile_y)
     if "W" in deuren:
         for dy in range(-2, 3):
-            for dx in range(0, 4): _zet(kaart, dx, my+dy, PAD)
+            for dx in range(0, 4): _zet(kaart, dx, my+dy, GRAS)
         spawn_posities["W"] = (2, my)
     if "E" in deuren:
         for dy in range(-2, 3):
@@ -127,7 +124,7 @@ def genereer_bos(deuren=None):
         spawn_posities["E"] = (KAART_B-3, my)
     if "N" in deuren:
         for dx in range(-2, 3):
-            for dy in range(0, 4): _zet(kaart, mx+dx, dy, PAD)
+            for dy in range(0, 4): _zet(kaart, mx+dx, dy, GRAS)
         spawn_posities["N"] = (mx, 2)
     if "S" in deuren:
         for dx in range(-2, 3):
@@ -158,16 +155,8 @@ def teken_bos_tegel(surface, tx, ty, sx, sy, tile_op):
     t=tile_op(tx,ty); r=pygame.Rect(sx,sy,TILE,TILE)
     if t in (GRAS,BOOM):
         pygame.draw.rect(surface, C_GRAS if (tx+ty)%2==0 else C_GRAS_D, r)
-    elif t==PAD:
-        pygame.draw.rect(surface, C_PAD, r)
-        pygame.draw.rect(surface, C_PAD_R, r, 2)
-    elif t==STRUIK:
+    elif t in (PAD, STRUIK):
         pygame.draw.rect(surface, C_GRAS if (tx+ty)%2==0 else C_GRAS_D, r)
-        rn=random.Random(tx*999+ty)
-        for _ in range(5):
-            bx=rn.randint(6,TILE-10); by=rn.randint(6,TILE-10)
-            pygame.draw.circle(surface,(160,50,50),(sx+bx,sy+by),9)
-            pygame.draw.circle(surface,(120,30,30),(sx+bx,sy+by),9,2)
 
 
 def teken_boom_object(surface, tx, ty, grootte, palet, cam_x, cam_y):
