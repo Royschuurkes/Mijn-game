@@ -1,71 +1,174 @@
-# level_manager.py - Beheert level progressie en kamer types
+# level_manager.py - Beheert floor en kamer progressie (BoI-stijl)
 import random
 from opslaan import *
 
+# ── Floor definities — pas hier aan om de opbouw te tweaken ─────────────────
+# Elke floor heeft:
+#   kamers_min/max  : hoeveel gewone gevechtskamers (random binnen range)
+#   rust_na         : na hoeveel kamers een rustplaats verschijnt (0 = nooit)
+#   vijanden        : lijst van vijandcomposities (random gekozen per kamer)
+#   schade_mult     : hoe hard vijanden slaan op deze floor
+#   hp_mult         : hoeveel HP vijanden hebben op deze floor
 
-def kamer_type(level_nr):
-    """Bepaal het type kamer op basis van het level nummer."""
-    if level_nr == 1:
-        return "gevecht"
-    if level_nr % 5 == 0:
-        return "baas"
-    if level_nr % 3 == 0:
-        return "rust"
-    return "gevecht"
+FLOOR_DEFINITIES = {
+    1: {
+        "kamers_min": 4, "kamers_max": 5,
+        "rust_na": 3,
+        "schade_mult": 1.0, "hp_mult": 1.0,
+        "vijanden": [
+            [("wolf", 1.0), ("wolf", 1.0)],
+            [("wolf", 1.0), ("wolf", 1.0), ("wolf", 1.0)],
+            [("wolf", 1.0), ("melee", 1.0)],
+        ],
+    },
+    2: {
+        "kamers_min": 4, "kamers_max": 6,
+        "rust_na": 3,
+        "schade_mult": 1.1, "hp_mult": 1.2,
+        "vijanden": [
+            [("wolf", 1.2), ("wolf", 1.2), ("melee", 1.0)],
+            [("wolf", 1.2), ("ranged", 1.0), ("melee", 1.0)],
+            [("ranged", 1.0), ("ranged", 1.0), ("wolf", 1.2)],
+            [("melee", 1.2), ("melee", 1.2), ("wolf", 1.2)],
+        ],
+    },
+    3: {
+        "kamers_min": 5, "kamers_max": 7,
+        "rust_na": 4,
+        "schade_mult": 1.2, "hp_mult": 1.5,
+        "vijanden": [
+            [("wolf", 1.5), ("wolf", 1.5), ("ranged", 1.2)],
+            [("wolf", 1.5), ("ranged", 1.2), ("ranged", 1.2), ("melee", 1.2)],
+            [("melee", 1.5), ("melee", 1.5), ("wolf", 1.5), ("ranged", 1.2)],
+            [("ranged", 1.5), ("ranged", 1.5), ("wolf", 1.5), ("wolf", 1.5)],
+        ],
+    },
+    4: {
+        "kamers_min": 5, "kamers_max": 8,
+        "rust_na": 4,
+        "schade_mult": 1.4, "hp_mult": 1.8,
+        "vijanden": [
+            [("wolf", 1.8), ("wolf", 1.8), ("ranged", 1.5), ("melee", 1.5)],
+            [("melee", 1.8), ("melee", 1.8), ("wolf", 1.8), ("ranged", 1.5)],
+            [("ranged", 1.8), ("ranged", 1.8), ("wolf", 1.8), ("wolf", 1.8)],
+            [("wolf", 2.0), ("wolf", 2.0), ("wolf", 2.0), ("melee", 1.8)],
+        ],
+    },
+}
+
+MAX_FLOOR = max(FLOOR_DEFINITIES.keys())
 
 
-def vijand_config(level_nr, kamer):
-    """
-    Geeft een lijst van (type, hp_multiplier) terug voor de vijanden in dit level.
-    """
-    if kamer == "rust":
-        return []
-
-    if kamer == "baas":
-        # Één grote baas
-        hp_mult = 1.0 + (level_nr * 0.3)
-        return [("baas", hp_mult)]
-
-    # Normaal gevecht: schaal aantal en sterkte met level
-    basis_aantal = min(3 + level_nr, 12)
-    hp_mult = 1.0 + (level_nr - 1) * 0.15
-
-    vijanden = []
-    for _ in range(basis_aantal):
-        # Meer ranged vijanden op hogere levels
-        ranged_kans = min(0.2 + level_nr * 0.04, 0.5)
-        t = "ranged" if random.random() < ranged_kans else "melee"
-        vijanden.append((t, hp_mult))
-
-    return vijanden
+def _floor_def(floor_nr):
+    """Geeft floor definitie terug, na max_floor steeds zwaarder."""
+    if floor_nr <= MAX_FLOOR:
+        return FLOOR_DEFINITIES[floor_nr]
+    # Na de laatste floor: herhaal laatste met oplopende schaling
+    extra = 0.3 * (floor_nr - MAX_FLOOR)
+    base = FLOOR_DEFINITIES[MAX_FLOOR]
+    return {
+        "kamers_min": base["kamers_min"],
+        "kamers_max": base["kamers_max"],
+        "rust_na":    base["rust_na"],
+        "schade_mult": round(base["schade_mult"] + extra, 2),
+        "hp_mult":    round(base["hp_mult"]     + extra, 2),
+        "vijanden":   base["vijanden"],
+    }
 
 
-def schade_multiplier(level_nr):
-    """Vijanden doen meer schade op hogere levels."""
-    return 1.0 + (level_nr - 1) * 0.1
+
+# Richtingen voor de kamergraph
+TEGENOVER       = {"N":"S", "S":"N", "E":"W", "W":"E"}
+RICHTING_DELTA  = {"E":(1,0), "W":(-1,0), "N":(0,-1), "S":(0,1)}
+
+
+def genereer_floor_graph(floor_nr):
+    fd = _floor_def(floor_nr)
+    n_kamers = random.randint(fd["kamers_min"], fd["kamers_max"])
+
+    grid     = {(0,0): True}
+    volgorde = [(0,0)]
+    frontier = [(0,0)]
+
+    pogingen = 0
+    while len(grid) < n_kamers and pogingen < 300:
+        pogingen += 1
+        if not frontier: break
+        basis = random.choice(frontier)
+        dirs  = list(RICHTING_DELTA.keys())
+        random.shuffle(dirs)
+        uitgebreid = False
+        for r in dirs:
+            dr, dc = RICHTING_DELTA[r]
+            nieuw = (basis[0]+dr, basis[1]+dc)
+            if nieuw not in grid:
+                grid[nieuw] = True
+                volgorde.append(nieuw)
+                frontier.append(nieuw)
+                uitgebreid = True
+                break
+        if not uitgebreid:
+            frontier.remove(basis)
+
+    # Start = eerste, Baas = laatste, Rust = ergens in het midden
+    baas_pos = volgorde[-1]
+    midden_kandidaten = volgorde[1:-1]
+    rust_pos = random.choice(midden_kandidaten) if midden_kandidaten else None
+
+    kamer_graph = {}
+    for pos in volgorde:
+        gx, gy = pos
+        deuren = set(); buren = {}
+        for r, (dr, dc) in RICHTING_DELTA.items():
+            buur = (gx+dr, gy+dc)
+            if buur in grid:
+                deuren.add(r); buren[r] = buur
+
+        if pos == baas_pos:
+            ktype = "baas"
+            hp    = round(fd["hp_mult"] * (1.0 + floor_nr * 0.2), 2)
+            vijanden = [("baas", hp)]
+        elif pos == rust_pos:
+            ktype = "rust"; vijanden = []
+        else:
+            ktype = "gevecht"
+            comp  = random.choice(fd["vijanden"])
+            vijanden = [(t, round(h * fd["hp_mult"], 2)) for t, h in comp]
+
+        kamer_graph[pos] = {
+            "type":             ktype,
+            "deuren":           deuren,
+            "buren":            buren,
+            "vijanden_config":  vijanden,
+            "schade_mult":      fd["schade_mult"],
+            "gecleared":        ktype == "rust",
+            "bezocht":          False,
+            "fontein_gebruikt": False,
+            "kaart_data":       None,
+        }
+
+    return kamer_graph, volgorde[0]
 
 
 class LevelManager:
     def __init__(self):
-        self.level_nr = 1
-        self.kamer = kamer_type(1)
-        self.vijanden_config = vijand_config(1, self.kamer)
-        self.schade_mult = schade_multiplier(1)
+        self.floor_nr = 1
+        # kamer/is_* worden door BosScene bijgehouden via huidige kamer
+        self.kamer = "gevecht"
 
-    def volgende_level(self):
-        self.level_nr += 1
-        self.kamer = kamer_type(self.level_nr)
-        self.vijanden_config = vijand_config(self.level_nr, self.kamer)
-        self.schade_mult = schade_multiplier(self.level_nr)
+    def volgende_floor(self):
+        self.floor_nr += 1
 
     @property
-    def is_rust(self):   return self.kamer == "rust"
+    def is_rust(self):    return self.kamer == "rust"
     @property
-    def is_baas(self):   return self.kamer == "baas"
+    def is_baas(self):    return self.kamer == "baas"
     @property
     def is_gevecht(self): return self.kamer == "gevecht"
 
-    def omschrijving(self):
-        if self.is_rust:  return f"Kamer {self.level_nr} — Rustplaats"
-        if self.is_baas:  return f"Kamer {self.level_nr} — EINDBAAS!"
-        return f"Kamer {self.level_nr}"
+    def omschrijving(self, kamer_nr=None, totaal=None):
+        if self.is_rust:  return f"Floor {self.floor_nr}  â  Rustplaats"
+        if self.is_baas:  return f"Floor {self.floor_nr}  â  EINDBAAS!"
+        if kamer_nr and totaal:
+            return f"Floor {self.floor_nr}  â  Kamer {kamer_nr}/{totaal}"
+        return f"Floor {self.floor_nr}"

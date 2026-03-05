@@ -8,7 +8,6 @@ BOOM_PAL = [
     ((110,70,35),(35,110,50),(20,85,35)),
     ((95,60,28),(80,130,30),(60,100,15)),
 ]
-
 KAART_B = 26
 KAART_H = 20
 
@@ -110,21 +109,32 @@ def _layout_split(kaart):
 
 LAYOUTS = [_layout_open_pilaren, _layout_chokepoint, _layout_boomgang,
            _layout_ruines, _layout_arena, _layout_split]
-x=1
 
-def genereer_bos(moeilijkheid=1):
+def genereer_bos(deuren=None):
+    if deuren is None: deuren = {"E"}
     kaart = _maak_basis()
     random.choice(LAYOUTS)(kaart)
-    # Spawn: gat in de LINKER boomrand
-    stx=2; sty=KAART_H//2
-    for dy in range(-2, 3):
-        for dx in range(0, 5): _zet(kaart, stx+dx, sty+dy, PAD)
-
-    # Exit: gat IN de RECHTER boomrand (portal zit in de rand zelf)
-    etx=KAART_B-3; ety=KAART_H//2
-    for dy in range(-2, 3):
-        for dx in range(-4, 1): _zet(kaart, etx+dx, ety+dy, GRAS)
-    for tx in range(stx+4, KAART_B//2): _zet(kaart, tx, sty, PAD)
+    my = KAART_H // 2
+    mx = KAART_B // 2
+    spawn_posities = {}  # richting -> (tile_x, tile_y)
+    if "W" in deuren:
+        for dy in range(-2, 3):
+            for dx in range(0, 4): _zet(kaart, dx, my+dy, PAD)
+        spawn_posities["W"] = (2, my)
+    if "E" in deuren:
+        for dy in range(-2, 3):
+            for dx in range(KAART_B-4, KAART_B): _zet(kaart, dx, my+dy, GRAS)
+        spawn_posities["E"] = (KAART_B-3, my)
+    if "N" in deuren:
+        for dx in range(-2, 3):
+            for dy in range(0, 4): _zet(kaart, mx+dx, dy, PAD)
+        spawn_posities["N"] = (mx, 2)
+    if "S" in deuren:
+        for dx in range(-2, 3):
+            for dy in range(KAART_H-4, KAART_H): _zet(kaart, mx+dx, dy, GRAS)
+        spawn_posities["S"] = (mx, KAART_H-3)
+    if not spawn_posities:
+        spawn_posities["W"] = (KAART_B//2, KAART_H//2)
     tile_op = _tile_op_fn(kaart)
     bomen=[]; bezocht=set()
     for ty in range(KAART_H):
@@ -141,7 +151,7 @@ def genereer_bos(moeilijkheid=1):
                 bomen.append((tx,ty,grootte))
     rng=random.Random(random.randint(0,9999))
     pal_map={(tx,ty):rng.choice(BOOM_PAL) for tx,ty,g in bomen}
-    return kaart, bomen, pal_map, stx, sty, tile_op
+    return kaart, bomen, pal_map, spawn_posities, tile_op
 
 
 def teken_bos_tegel(surface, tx, ty, sx, sy, tile_op):

@@ -95,14 +95,18 @@ class Speler:
                     # Stretch bij dodge start
                     self.schaal_x = 1.4; self.schaal_y = 0.7
             if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
-                if not self._heeft_schild():
-                    if (self.zw_t<=0 and self.zw_cd<=0
-                            and self.sta>=STAMINA_ZWAARD and self.kan_aanvallen):
-                        self.zw_t = zwaard_frames
-                        self.zw_cd = zwaard_cd
-                        self.sta -= STAMINA_ZWAARD
-                        self.sta_delay = STAMINA_DELAY
-                        self.geraakt = set()
+                # Met schild: aanvallen met simpel_zwaard stats
+                from wapens import get_wapen as _gw
+                w_a = _gw("simpel_zwaard") if self._heeft_schild() else w
+                zf = w_a["zwaard_frames"] if w_a["zwaard_frames"] > 0 else ZWAARD_FRAMES
+                zc = w_a["zwaard_cd"]     if w_a["zwaard_cd"]     > 0 else ZWAARD_CD
+                if (self.zw_t<=0 and self.zw_cd<=0
+                        and self.sta>=STAMINA_ZWAARD and self.kan_aanvallen):
+                    self.zw_t = zf
+                    self.zw_cd = zc
+                    self.sta -= STAMINA_ZWAARD
+                    self.sta_delay = STAMINA_DELAY
+                    self.geraakt = set()
             if e.type == pygame.MOUSEBUTTONDOWN and e.button == 3:
                 special = w.get("special")
                 if special and special != "blok":
@@ -369,6 +373,10 @@ class Vijand:
             self.max_hp   = VIJAND_HP_BASIS * hp_multiplier * 5
             self.radius   = 26
             self.snelheid = VIJAND_SNELHEID * 1.3
+        elif type_ == "wolf":
+            self.max_hp   = VIJAND_HP_BASIS * hp_multiplier * 0.8
+            self.radius   = 13
+            self.snelheid = VIJAND_SNELHEID * 1.1
         else:
             self.max_hp   = VIJAND_HP_BASIS * hp_multiplier
             self.radius   = 14
@@ -382,6 +390,12 @@ class Vijand:
         self.windup_vx = self.windup_vy = 0.0
         # Squash & stretch
         self.schaal_x = 1.0; self.schaal_y = 1.0
+        # Wolf state machine
+        self.wolf_staat   = "afstand"
+        self.wolf_t       = 0
+        self.wolf_dash_vx = 0.0
+        self.wolf_dash_vy = 0.0
+        self.wolf_glow    = 0.0
 
     def krijg_schade(self, schade, van_x, van_y):
         self.hp -= schade
@@ -430,7 +444,72 @@ class Vijand:
         melee_sch = VIJAND_MELEE_SCHADE * self.schade_mult
         pijl_sch  = PIJL_SCHADE         * self.schade_mult
 
-        if self.type in ("melee","baas"):
+        if self.type == "wolf":
+            WOLF_AFSTAND     = 180   # gewenste afstand tijdens cirkelen
+            WOLF_WINDUP_T    = 30    # frames oplichten voor dash (langer = beter te ontwijken)
+            WOLF_DASH_T      = 10    # frames van de dash zelf
+            WOLF_HERSTEL_T   = 100   # frames na aanval voor volgende
+            WOLF_DASH_SPEED  = DODGE_SPEED * 1.1
+            WOLF_SCHADE      = VIJAND_MELEE_SCHADE * 1.2 * self.schade_mult
+
+            if self.wolf_t > 0: self.wolf_t -= 1
+
+            if self.wolf_staat == "afstand":
+                self.wolf_glow = max(0.0, self.wolf_glow - 0.05)
+                if dist > WOLF_AFSTAND + 30:
+                    # Beweeg richting speler
+                    self.schaal_x = lerp(self.schaal_x, 1.2, 0.1)
+                    self.schaal_y = lerp(self.schaal_y, 0.85, 0.1)
+                    self._beweeg(self.fx * self.snelheid, self.fy * self.snelheid, blok_check)
+                elif dist < WOLF_AFSTAND - 30:
+                    # Te dichtbij: stap achteruit
+                    self._beweeg(-self.fx * self.snelheid * 0.7, -self.fy * self.snelheid * 0.7, blok_check)
+                # Klaar om aan te vallen?
+                if self.acd <= 0 and dist < WOLF_AFSTAND + 50:
+                    self.wolf_staat = "windup"
+                    self.wolf_t     = WOLF_WINDUP_T
+
+            elif self.wolf_staat == "windup":
+                # Stap achteruit en licht op
+                self.wolf_glow = min(1.0, self.wolf_t / WOLF_WINDUP_T * 1.2)
+                self._beweeg(-self.fx * 0.8, -self.fy * 0.8, blok_check)
+                self.schaal_x = lerp(self.schaal_x, 0.65, 0.15)
+                self.schaal_y = lerp(self.schaal_y, 1.5, 0.15)
+                # Update richting naar speler tijdens windup
+                if math.hypot(dvx, dvy) > 5:
+                    self.fx, self.fy = normalize(dvx, dvy)
+                if self.wolf_t == 0:
+                    # Start dash
+                    self.wolf_staat   = "dash"
+                    self.wolf_t       = WOLF_DASH_T
+                    self.wolf_dash_vx = self.fx * WOLF_DASH_SPEED
+                    self.wolf_dash_vy = self.fy * WOLF_DASH_SPEED
+                    self.schaal_x = 1.5; self.schaal_y = 0.6
+
+            elif self.wolf_staat == "dash":
+                self.wolf_glow = lerp(self.wolf_glow, 0.0, 0.2)
+                self._beweeg(self.wolf_dash_vx, self.wolf_dash_vy, blok_check)
+                # Raakt de speler tijdens de dash?
+                if dist < 44 and speler_flinch_cd <= 0:
+                    rvn = math.degrees(math.atan2(self.y-sp_y, self.x-sp_x))
+                    geblokt = speler_blok and abs(hoek_diff(rvn, fh_sp)) < 60
+                    sch = WOLF_SCHADE * 0.3 if geblokt else WOLF_SCHADE
+                    aanval = ("melee", self.x, self.y, sch)
+                if self.wolf_t == 0:
+                    self.wolf_staat = "herstel"
+                    self.wolf_t     = WOLF_HERSTEL_T
+                    self.acd        = WOLF_HERSTEL_T
+                    self.schaal_x = 1.4; self.schaal_y = 0.7
+
+            elif self.wolf_staat == "herstel":
+                self.wolf_glow = 0.0
+                # Loop weg van de speler na aanval
+                if dist < WOLF_AFSTAND:
+                    self._beweeg(-self.fx * self.snelheid, -self.fy * self.snelheid, blok_check)
+                if self.wolf_t == 0:
+                    self.wolf_staat = "afstand"
+
+        elif self.type in ("melee","baas"):
             if dist > self.radius+10:
                 # Stretch in looprichting
                 self.schaal_x = lerp(self.schaal_x, 1.2, 0.1)
@@ -483,6 +562,13 @@ class Vijand:
 
         if self.type == "baas":
             kl = (220,60,220) if not knip else (255,255,255)
+        elif self.type == "wolf":
+            if knip:
+                kl = (255,255,255)
+            else:
+                # Glow effect: mix naar lichtgeel/wit naarmate wolf_glow hoger is
+                g = getattr(self, "wolf_glow", 0.0)
+                kl = (int(160+g*95), int(130+g*100), int(60+g*80))
         else:
             kl = (220,60,60) if knip else (C_MELEE if self.type=="melee" else C_RANGED)
 
@@ -491,6 +577,16 @@ class Vijand:
 
         if self.type == "baas":
             pygame.draw.ellipse(surface, (255,150,255), (sx-rw, sy-rh_s, rw*2, rh_s*2), 3)
+        elif self.type == "wolf":
+            g = getattr(self, "wolf_glow", 0.0)
+            if g > 0.1:
+                # Oplichtende ring rond de wolf tijdens windup
+                glow_r = int(r * 1.6 + g * 12)
+                glow_alpha = int(g * 180)
+                glow_surf = pygame.Surface((glow_r*2+4, glow_r*2+4), pygame.SRCALPHA)
+                pygame.draw.circle(glow_surf, (255, 220, 80, glow_alpha),
+                                   (glow_r+2, glow_r+2), glow_r)
+                surface.blit(glow_surf, (sx-glow_r-2, sy-glow_r-2))
 
         oog_r = 5 if self.type != "baas" else 8
         pygame.draw.circle(surface, C_OOG,
