@@ -1,48 +1,43 @@
-# main.py - Startpunt van de game
-import sys, traceback
+# main.py - Entry point and scene manager
 import pygame
-from opslaan import laad_save, sla_op, SCREEN_W, SCREEN_H, FPS
-import geluid
+from constants import load_save, save_game, SCREEN_W, SCREEN_H, FPS
+import sound
 
 
 def main():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-    pygame.display.set_caption("RPG - Kasteel & Bos")
+    pygame.display.set_caption("Het Bos")
     clock = pygame.time.Clock()
 
-    # Geluid initialiseren
-    geluid.init_geluid()
+    sound.init_sound()
 
-    save  = laad_save()
+    save = load_save()
     scene = "hub"
 
     while True:
         if scene == "hub":
             from hub import HubScene
-            resultaat = HubScene(screen, clock, save).run()
-            if resultaat == "quit":
-                break
-            elif resultaat == "bos":
-                scene = "bos"
+            result = HubScene(screen, clock, save).run()
+        elif scene == "forest":
+            from forest import ForestScene
+            result = ForestScene(screen, clock, save).run()
+        else:
+            break
 
-        elif scene == "bos":
-            from bos import BosScene
-            resultaat, save = BosScene(screen, clock, save).run()
-            sla_op(save)
-            if resultaat == "quit":
-                break
-            elif resultaat == "hub":
-                scene = "hub"
+        if result == "quit":
+            break
+        elif result == "hub":
+            save = load_save()
+            scene = "hub"
+        elif result == "forest":
+            scene = "forest"
+        else:
+            break
 
+    save_game(save)
     pygame.quit()
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception:
-        print("\n---- FOUTMELDING ----------------------------------------")
-        traceback.print_exc()
-        input("\nDruk op Enter om af te sluiten...")
-        sys.exit()
+    main()

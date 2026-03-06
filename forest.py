@@ -1,0 +1,965 @@
+# forest.py - Forest combat scene with floor/room system (BoI style)
+import math, random, pygame
+from constants import *
+from entities import Player, Enemy, Boss, Arrow, normalize, angle_diff
+from map_gen import (generate_forest, generate_arena, draw_tile, draw_tree,
+                     MAP_WIDTH, MAP_HEIGHT)
+from effects import ScreenShake, FreezeFrames, ParticleSystem, DamageNumberSystem, HitFlash
+from level_manager import LevelManager, generate_floor_graph, OPPOSITE
+from items import ITEMS, RARITY_COLOR, RARITY_NAME, pick_items
+import sound
+
+
+def pulse_color(base, highlight, t, speed=0.08):
+    f = (math.sin(t * speed) + 1) / 2
+    return tuple(int(base[i] + (highlight[i] - base[i]) * f) for i in range(3))
+
+
+class ForestScene:
+    def __init__(self, screen, clock, save):
+        self.screen    = screen
+        self.clock     = clock
+        self.save      = save
+        self.level_mgr = LevelManager()
+        self.font_s    = pygame.font.SysFont("monospace", 15)
+        self.font_m    = pygame.font.SysFont("monospace", 22)
+        self.font_g    = pygame.font.SysFont("monospace", 52, bold=True)
+        self.tick      = 0
+        self.player    = None
+        self.cam_zoom        = 1.0
+        self.cam_zoom_target = 1.0
+        self._generate_floor(first=True)
+
+    # ── Floor / room generation ───────────────────────────────────────────────
+
+    def _generate_floor(self, first=True):
+        self.floor_graph, self.start_pos = generate_floor_graph(self.level_mgr.floor_num)
+        self.current_pos = self.start_pos
+        for i, (pos, room) in enumerate(self.floor_graph.items()):
+            seed      = abs(hash((pos, self.level_mgr.floor_num, i))) % 99999
+            rng_state = random.getstate()
+            random.seed(seed)
+            if room["type"] == "boss":
+                kd = generate_arena(room["doors"])
+            else:
+                kd = generate_forest(room["doors"])
+            room["map_data"] = kd
+            random.setstate(rng_state)
+        self._load_room(self.start_pos, direction=None, first=first)
+
+    def _load_room(self, grid_pos, direction=None, first=False):
+        self.current_pos = grid_pos
+        room = self.floor_graph[grid_pos]
+        room["visited"] = True
+        tilemap, trees, palette_map, spawn_positions, get_tile = room["map_data"]
+        self.tilemap     = tilemap
+        self.trees       = trees
+        self.palette_map = palette_map
+        self.get_tile    = get_tile
+        self.map_w = MAP_WIDTH; self.map_h = MAP_HEIGHT
+
+        if direction is None:
+            entry = "W" if "W" in spawn_positions else list(spawn_positions.keys())[0]
+        else:
+            entry = OPPOSITE[direction]
+            if entry not in spawn_positions:
+                entry = list(spawn_positions.keys())[0]
+        stx, sty = spawn_positions[entry]
+        sp_x = stx * TILE + TILE // 2
+        sp_y = sty * TILE + TILE // 2
+
+        if first:
+            self.player = Player(sp_x, sp_y, self.save)
+            self.cam_x  = float(sp_x - SCREEN_W / 2)
+            self.cam_y  = float(sp_y - SCREEN_H / 2)
+        else:
+            self.player.x = float(sp_x)
+            self.player.y = float(sp_y)
+            self.player.dodge_timer     = 0
+            self.player.dodge_cooldown  = 0
+            self.player.flinch_cooldown = 0
+
+        self.arrows             = []
+        self.shake              = ScreenShake()
+        self.freeze             = FreezeFrames()
+        self.particles          = ParticleSystem()
+        self.damage_numbers     = DamageNumberSystem()
+        self.flash              = HitFlash()
+        self.dodge_trail_timer  = 0
+        self.transition_timer   = 0
+        self._pending_room      = None
+        self.room_intro_timer   = 2 * FPS
+        self.floor_portal_open  = False
+        self.cam_zoom           = 1.0
+        self.cam_zoom_target    = 1.0
+
+        self.level_mgr.room_type = room["type"]
+
+        self.enemies            = []
+        self.boss               = None
+        self.campfire_positions = []
+
+        if not room["cleared"]:
+            for group in room["enemy_config"]:
+                e_type, count, hp_mult = group
+                if e_type == "boss":
+                    cx = MAP_WIDTH  // 2 * TILE + TILE // 2
+                    cy = MAP_HEIGHT // 2 * TILE + TILE // 2
+                    self.boss = Boss(cx, cy, damage_mult=hp_mult)
+                else:
+                    self._spawn_group(e_type, count, hp_mult, room["damage_mult"])
+        else:
+            self.floor_portal_open = (room["type"] == "boss")
+
+        self.fountain_pos       = None
+        self.fountain_used      = room.get("fountain_used", False)
+        self.item_pedestal_pos  = None
+        self.item_choice_active = False
+        self.item_choices       = []
+
+        if room["type"] == "rest":
+            fx = MAP_WIDTH  // 2 * TILE + TILE // 2
+            fy = MAP_HEIGHT // 2 * TILE + TILE // 2
+            self.fountain_pos = (fx, fy)
+            if not room.get("item_taken", False):
+                self.item_pedestal_pos = (fx - 100, fy)
+
+    def _spawn_group(self, e_type, count, hp_mult, damage_mult):
+        sp = self.player
+        cx, cy = sp.x, sp.y
+        for _ in range(200):
+            angle = random.uniform(0, math.pi * 2)
+            d     = random.randint(280, 460)
+            tx    = sp.x + math.cos(angle) * d
+            ty    = sp.y + math.sin(angle) * d
+            if self.get_tile(int(tx // TILE), int(ty // TILE)) in (GRASS, PATH):
+                cx, cy = tx, ty
+                break
+
+        if e_type == "ranged" and count >= 2:
+            self.campfire_positions.append((cx, cy))
+
+        group_id = random.randint(1000, 9999)
+        WOLF_OFFSETS   = [(0, 0), (-28, 16), (28, 16), (-14, -20), (14, -20)]
+        RANGED_OFFSETS = [(0, 0), (-50, 0), (50, 0), (0, -50), (0, 50)]
+
+        for i in range(count):
+            if e_type == "wolf":
+                ox, oy = WOLF_OFFSETS[i % len(WOLF_OFFSETS)]
+            else:
+                ox, oy = RANGED_OFFSETS[i % len(RANGED_OFFSETS)]
+            ex = cx + ox + random.uniform(-10, 10)
+            ey = cy + oy + random.uniform(-10, 10)
+            for _ in range(50):
+                if self.get_tile(int(ex // TILE), int(ey // TILE)) in (GRASS, PATH):
+                    break
+                ex = cx + random.uniform(-60, 60)
+                ey = cy + random.uniform(-60, 60)
+            e          = Enemy(ex, ey, e_type, hp_mult, damage_mult)
+            e.group_id = group_id
+            self.enemies.append(e)
+
+    # ── Collision helper ──────────────────────────────────────────────────────
+
+    def is_blocked(self, tx, ty):
+        return self.get_tile(tx, ty) == TREE
+
+    # ── Main loop ─────────────────────────────────────────────────────────────
+
+    def run(self):
+        while True:
+            self.clock.tick(FPS)
+            events = pygame.event.get()
+            result = self._handle_events(events)
+            if result:
+                return result
+
+            if self.freeze.update():
+                self._draw()
+                pygame.display.flip()
+                continue
+
+            self._update(events)
+            self._draw()
+            pygame.display.flip()
+            self.tick += 1
+            sound.update()
+
+    def _handle_events(self, events):
+        for e in events:
+            if e.type == pygame.QUIT:
+                return "quit"
+            if e.type == pygame.KEYDOWN:
+                if e.key == pygame.K_ESCAPE:
+                    return "quit"
+                if e.key == pygame.K_q:
+                    self._use_active_item()
+
+        if self.item_choice_active:
+            for e in events:
+                if e.type == pygame.KEYDOWN:
+                    if e.key in (pygame.K_1, pygame.K_KP1) and len(self.item_choices) >= 1:
+                        self._take_item(self.item_choices[0])
+                    elif e.key in (pygame.K_2, pygame.K_KP2) and len(self.item_choices) >= 2:
+                        self._take_item(self.item_choices[1])
+                    elif e.key in (pygame.K_3, pygame.K_KP3) and len(self.item_choices) >= 3:
+                        self._take_item(self.item_choices[2])
+        return None
+
+    def _use_active_item(self):
+        items   = self.save.get("items", [])
+        charges = self.save.get("item_charges", {})
+        effects = self.save.get("active_effects", {})
+        active_items = [k for k in items if ITEMS[k]["type"] == "actief"]
+        if not active_items:
+            return
+        key  = active_items[0]
+        item = ITEMS[key]
+        c    = charges.get(key, item.get("charges", 1))
+        if c <= 0:
+            return
+        if key == "invis_potion":
+            effects["invis"] = item["duur"]
+        elif key == "fire_potion":
+            effects["fire_potion"] = item["duur"]
+        elif key == "health_potion":
+            heal = item.get("heal", 35)
+            self.player.hp = min(self.player.hp_max, self.player.hp + heal)
+            self.damage_numbers.add(self.player.x, self.player.y - 20,
+                                    f"+{heal}", color_override=True,
+                                    override_color=(80, 255, 120))
+            sound.play("fountain")
+        charges[key] = c - 1
+        self.save["item_charges"]   = charges
+        self.save["active_effects"] = effects
+
+    def _take_item(self, key):
+        item    = ITEMS[key]
+        items   = self.save.setdefault("items", [])
+        charges = self.save.setdefault("item_charges", {})
+        if item["type"] == "passief":
+            if key not in items:
+                items.append(key)
+        else:
+            if key not in items:
+                items.append(key)
+            charges[key] = item.get("charges", 1)
+        self.item_choice_active = False
+        self.item_choices       = []
+        room = self.floor_graph[self.current_pos]
+        room["item_taken"] = True
+        self.item_pedestal_pos = None
+        sound.play("level_up")
+
+    # ── Update ────────────────────────────────────────────────────────────────
+
+    def _update(self, events):
+        sp = self.player
+        if not sp.alive:
+            return
+
+        if self.transition_timer > 0:
+            self.transition_timer -= 1
+            if self.transition_timer == 0 and self._pending_room:
+                direction, next_pos = self._pending_room
+                self._pending_room  = None
+                self._load_room(next_pos, direction=direction)
+            return
+
+        keys  = pygame.key.get_pressed()
+        mouse = pygame.mouse.get_pos()
+        block = (pygame.mouse.get_pressed()[2]
+                 and sp._has_shield()
+                 and not sp.shield_broken
+                 and sp.dodge_timer == 0
+                 and sp.flinch_timer == 0)
+
+        if not self.item_choice_active:
+            sp.handle_events(events, block)
+            sp.update(keys, mouse, int(self.cam_x), int(self.cam_y),
+                      self.is_blocked, None, block)
+
+        # Dodge burst effect
+        if getattr(sp, 'dodge_burst_pending', False):
+            sp.dodge_burst_pending = False
+            self.particles.dodge_burst(sp.x, sp.y)
+
+        self._update_dodge_trail()
+        self._update_sword_hits()
+        self._update_enemies(block)
+        self._update_arrows(block)
+        self._update_boss(block)
+        self._check_room_clear()
+        self._check_door_transition()
+        self._check_fountain()
+        self._check_item_pedestal()
+        self._update_camera()
+
+        self.cam_zoom += (self.cam_zoom_target - self.cam_zoom) * 0.15
+        if abs(self.cam_zoom - 1.0) < 0.001:
+            self.cam_zoom        = 1.0
+            self.cam_zoom_target = 1.0
+
+        self.particles.update()
+        self.damage_numbers.update()
+        self.shake.update()
+
+    def _update_dodge_trail(self):
+        sp = self.player
+        if sp.dodge_timer > 0:
+            self.dodge_trail_timer -= 1
+            if self.dodge_trail_timer <= 0:
+                self.dodge_trail_timer = 3
+                self.particles.dodge_trail(sp.x, sp.y)
+
+    def _camera_punch(self, strength=1.06):
+        self.cam_zoom_target = strength
+
+    def _update_sword_hits(self):
+        sp      = self.player
+        targets = self.enemies + ([self.boss] if self.boss else [])
+
+        # ── Charge hit detection ──────────────────────────────────────────────
+        if sp.charge_timer > 0:
+            for target, damage, kb_nx, kb_ny in sp.charge_hits(targets):
+                fire = sp.has_item("fire_damage") or sp.has_active_effect("fire_potion")
+                dead = target.take_damage_swing(damage, kb_nx, kb_ny)
+                if fire and not getattr(target, 'burning_timer', 0) > 0:
+                    target.burning_timer = 360
+                    target.burning_tick  = 120
+                angle = math.degrees(math.atan2(kb_ny, kb_nx))
+                self.particles.sword_sparks(target.x, target.y, angle)
+                self.particles.blood_splatter(target.x, target.y, angle)
+                self.damage_numbers.add(target.x, target.y - 20, damage)
+                self.freeze.start(3)
+                self.shake.start(6, 10)
+                self._camera_punch(1.05)
+                sound.play("sword_hit")
+                if dead:
+                    self._on_enemy_death(target)
+            return   # geen normale swing check tijdens charge
+
+        # ── Normale swing hit detection ───────────────────────────────────────
+        hits = sp.sword_hits(targets)
+
+        if not hits and sp.combo_timer > 0 and sp.combo_timer == 9:
+            sound.play("sword_miss")
+    
+        for target, damage, kb_nx, kb_ny in hits:
+            fire = sp.has_item("fire_damage") or sp.has_active_effect("fire_potion")
+            dead = target.take_damage_swing(damage, kb_nx, kb_ny)
+            if fire and not getattr(target, 'burning_timer', 0) > 0:
+                target.burning_timer = 360
+                target.burning_tick  = 120
+            angle = math.degrees(math.atan2(kb_ny, kb_nx))
+            self.particles.sword_sparks(target.x, target.y, angle)
+            self.particles.blood_splatter(target.x, target.y, angle)
+            self.damage_numbers.add(target.x, target.y - 20, damage)
+
+            is_finisher    = (sp.combo_step == 3 and not sp.is_dash_strike)
+            is_boss_target = target.type == "boss"
+
+            if is_finisher:
+                self.freeze.start(5)
+                self.shake.start(9, 14)
+                self._camera_punch(1.07)
+            elif is_boss_target:
+                self.freeze.start(7)
+                self.shake.start(7, 12)
+                self._camera_punch(1.05)
+            else:
+                self.freeze.start(2)
+                self.shake.start(4, 8)
+
+            sound.play("sword_hit")
+            if dead:
+                self._on_enemy_death(target)
+
+    def _update_enemies(self, block):
+        sp   = self.player
+        fh   = math.degrees(math.atan2(sp.fy, sp.fx))
+        dead = []
+        for e in self.enemies:
+            result = e.update(sp.x, sp.y, self.is_blocked, fh,
+                              block, sp.flinch_cooldown)
+            if result is None:
+                continue
+            attack_type = result[0]
+            if attack_type == "melee":
+                _, ax, ay, dmg = result
+                dist = math.hypot(sp.x - e.x, sp.y - e.y)
+                if dist < e.radius + 28:
+                    self._enemy_hits_player(e, ax, ay, dmg, block, is_arrow=False)
+            elif attack_type == "arrow":
+                _, ax, ay, adx, ady, admg = result
+                self.arrows.append(Arrow(ax, ay, adx, ady, admg))
+            if e.hp <= 0:
+                dead.append(e)
+        for e in dead:
+            if e in self.enemies:
+                self._on_enemy_death(e)
+
+    def _update_boss(self, block):
+        if not self.boss:
+            return
+        sp     = self.player
+        fh     = math.degrees(math.atan2(sp.fy, sp.fx))
+        result, phase2_trigger = self.boss.update(
+            sp.x, sp.y, self.is_blocked, fh, block, sp.flinch_cooldown)
+
+        if phase2_trigger:
+            # Charge warning — eerste frame van windup
+            if (self.boss and self.boss.state == "charge_windup"
+                    and not getattr(self.boss, '_charge_warned', False)):
+                self.boss._charge_warned = True
+                self.shake.start(5, 8)
+                self.flash.start(40)
+                sound.play("finisher_charge")   # scherp geluid als waarschuwing
+
+        if self.boss and self.boss.state != "charge_windup":
+            if hasattr(self.boss, '_charge_warned'):
+                self.boss._charge_warned = False
+            self.shake.start(14, 25)
+            self.freeze.start(8)
+            self._camera_punch(1.10)
+            sound.play("phase2")
+            for _ in range(30):
+                angle = random.uniform(0, math.pi * 2)
+                speed = random.uniform(2, 6)
+                import effects as _fx
+                self.particles.particles.append(
+                    _fx.Particle(
+                        self.boss.x, self.boss.y,
+                        math.cos(angle) * speed, math.sin(angle) * speed,
+                        (200, 40, 20), lifetime=40, radius=6, gravity=0.05))
+
+        if result:
+            attack_type = result[0]
+            if attack_type in ("melee", "charge"):
+                _, ax, ay, dmg = result
+                dist = math.hypot(sp.x - self.boss.x, sp.y - self.boss.y)
+                if dist < self.boss.radius + 40:
+                    self._enemy_hits_player(self.boss, ax, ay, dmg, block,
+                                            is_arrow=False,
+                                            knockback=KNOCKBACK * (2.0 if attack_type == "charge" else 1.0))
+
+        if self.boss and self.boss.state == "stamp_actief":
+            for ring in self.boss.shockwave_rings:
+                dist = math.hypot(sp.x - ring["x"], sp.y - ring["y"])
+                if abs(dist - ring["r"]) < 18 and sp.flinch_cooldown <= 0:
+                    dmg = self.boss.STAMP_DAMAGE * self.boss.damage_mult
+                    self._enemy_hits_player(self.boss, ring["x"], ring["y"], dmg,
+                                            block, is_arrow=False)
+
+        if self.boss and self.boss.hp <= 0:
+            self._on_enemy_death(self.boss)
+            self.boss = None
+
+    def _update_arrows(self, block):
+        sp        = self.player
+        to_remove = []
+        for arrow in self.arrows:
+            hit_wall = arrow.update(self.is_blocked)
+            if hit_wall:
+                to_remove.append(arrow)
+                continue
+            dist = math.hypot(sp.x - arrow.x, sp.y - arrow.y)
+            if dist < 18:
+                facing_arrow  = math.degrees(math.atan2(arrow.dy, arrow.dx))
+                player_facing = math.degrees(math.atan2(sp.fy, sp.fx))
+                angle_to_arrow = abs(angle_diff(player_facing, facing_arrow))
+                if block and sp._has_shield() and angle_to_arrow < 70 and not sp.shield_broken:
+                    blocked = sp.handle_block(arrow.x, arrow.y, STAMINA_SHIELD_ARROW)
+                    if blocked:
+                        sound.play("shield_block")
+                        self.particles.sword_sparks(sp.x, sp.y, facing_arrow + 180)
+                        leak = arrow.damage * BLOCK_DAMAGE_THROUGH
+                        if leak > 0:
+                            sp.take_damage(leak, arrow.x, arrow.y)
+                    else:
+                        if sp.take_damage(arrow.damage, arrow.x, arrow.y):
+                            self._player_got_hit(arrow.damage)
+                else:
+                    if sp.take_damage(arrow.damage, arrow.x, arrow.y):
+                        self._player_got_hit(arrow.damage)
+                to_remove.append(arrow)
+        for arrow in to_remove:
+            if arrow in self.arrows:
+                self.arrows.remove(arrow)
+
+    def _enemy_hits_player(self, enemy, from_x, from_y, damage, block,
+                           is_arrow=False, knockback=None):
+        sp = self.player
+        if block and sp._has_shield() and not sp.shield_broken:
+            player_facing = math.degrees(math.atan2(sp.fy, sp.fx))
+            attack_angle  = math.degrees(math.atan2(from_y - sp.y, from_x - sp.x))
+            angle_to_hit  = abs(angle_diff(player_facing, attack_angle))
+            if angle_to_hit < 75:
+                blocked = sp.handle_block(from_x, from_y)
+                if blocked:
+                    sound.play("shield_block")
+                    self.particles.sword_sparks(sp.x, sp.y,
+                        math.degrees(math.atan2(sp.y - from_y, sp.x - from_x)))
+                    leak = damage * BLOCK_DAMAGE_THROUGH
+                    if leak > 0 and sp.take_damage(leak, from_x, from_y):
+                        self._player_got_hit(leak)
+                    return
+        if knockback is not None:
+            knx, kny = normalize(sp.x - from_x, sp.y - from_y)
+            sp.flinch_dx = knx * knockback
+            sp.flinch_dy = kny * knockback
+        if sp.take_damage(damage, from_x, from_y):
+            self._player_got_hit(damage)
+
+    def _player_got_hit(self, damage):
+        sp = self.player
+        self.damage_numbers.add(sp.x, sp.y - 20, damage, is_player_damage=True)
+        self.shake.start(8, 14)
+        self.freeze.start(4)
+        self.flash.start(90)
+        self._camera_punch(1.06)
+        sound.play("player_hit")
+
+    def _on_enemy_death(self, enemy):
+        is_wolf = enemy.type == "wolf"
+        is_boss = enemy.type == "boss"
+
+        if is_wolf:
+            kl = (200, 170, 80)
+            self.particles.death_explosion(enemy.x, enemy.y, kl)
+            for _ in range(8):
+                angle = random.uniform(math.pi * 0.3, math.pi * 0.7)
+                speed = random.uniform(4.0, 9.0)
+                import effects as _fx
+                self.particles.particles.append(
+                    _fx.Particle(enemy.x, enemy.y,
+                                 math.cos(angle) * speed, math.sin(angle) * speed,
+                                 (220, 200, 120), lifetime=18, radius=5, gravity=0.3))
+        elif is_boss:
+            self.particles.death_explosion(enemy.x, enemy.y, (55, 90, 45))
+            self.particles.death_explosion(enemy.x, enemy.y, (255, 200, 50))
+        else:
+            self.particles.death_explosion(enemy.x, enemy.y, (220, 80, 80))
+
+        self.shake.start(14 if is_boss else 8 if is_wolf else 6,
+                         20 if is_boss else 14)
+        self.freeze.start(6 if is_boss else 4 if is_wolf else 3)
+        if is_boss or is_wolf:
+            self._camera_punch(1.08 if is_boss else 1.04)
+        sound.play("boss_death" if is_boss else "enemy_death")
+
+        if self.player.has_item("bloodthirst"):
+            heal = 8
+            self.player.hp = min(self.player.hp_max, self.player.hp + heal)
+            self.damage_numbers.add(self.player.x, self.player.y - 30,
+                                    f"+{heal}", color_override=True,
+                                    override_color=(80, 255, 120))
+        if enemy in self.enemies:
+            self.enemies.remove(enemy)
+
+    def _check_room_clear(self):
+        room = self.floor_graph[self.current_pos]
+        if room["cleared"]:
+            return
+        if not self.enemies and self.boss is None:
+            room["cleared"] = True
+            if room["type"] == "boss":
+                self.floor_portal_open = True
+                sound.play("level_up")
+            self.shake.start(4, 10)
+
+    def _check_door_transition(self):
+        if self.transition_timer > 0 or self._pending_room:
+            return
+        room = self.floor_graph[self.current_pos]
+        if not room["cleared"]:
+            return
+
+        sp        = self.player
+        tx        = int(sp.x // TILE)
+        ty        = int(sp.y // TILE)
+        neighbors = room["neighbors"]
+
+        trigger = None
+        if "W" in neighbors and tx <= 1:
+            trigger = ("W", neighbors["W"])
+        elif "E" in neighbors and tx >= MAP_WIDTH - 2:
+            trigger = ("E", neighbors["E"])
+        elif "N" in neighbors and ty <= 1:
+            trigger = ("N", neighbors["N"])
+        elif "S" in neighbors and ty >= MAP_HEIGHT - 2:
+            trigger = ("S", neighbors["S"])
+
+        if trigger:
+            self.transition_timer = 18
+            self._pending_room    = trigger
+
+        if self.floor_portal_open and room["type"] == "boss":
+            cx = MAP_WIDTH  // 2 * TILE + TILE // 2
+            cy = MAP_HEIGHT // 2 * TILE + TILE // 2
+            if math.hypot(sp.x - cx, sp.y - cy) < 48:
+                self.level_mgr.next_floor()
+                self.save["highest_floor"] = max(
+                    self.save.get("highest_floor", 0), self.level_mgr.floor_num - 1)
+                save_game(self.save)
+                self._generate_floor(first=False)
+
+    def _check_fountain(self):
+        if not self.fountain_pos or self.fountain_used:
+            return
+        sp   = self.player
+        dist = math.hypot(sp.x - self.fountain_pos[0], sp.y - self.fountain_pos[1])
+        if dist < 40:
+            heal = min(40, sp.hp_max - sp.hp)
+            if heal > 0:
+                sp.hp += heal
+                self.damage_numbers.add(sp.x, sp.y - 20, f"+{int(heal)}",
+                                        color_override=True, override_color=(80, 255, 120))
+                sound.play("fountain")
+            self.fountain_used = True
+            self.floor_graph[self.current_pos]["fountain_used"] = True
+
+    def _check_item_pedestal(self):
+        if not self.item_pedestal_pos or self.item_choice_active:
+            return
+        sp   = self.player
+        dist = math.hypot(sp.x - self.item_pedestal_pos[0],
+                          sp.y - self.item_pedestal_pos[1])
+        if dist < 50:
+            self.item_choices       = pick_items(3, self.save.get("items", []),
+                                                 self.save.get("item_charges", {}))
+            self.item_choice_active = True
+
+    def _update_camera(self):
+        sp       = self.player
+        target_x = sp.x - SCREEN_W / 2
+        target_y = sp.y - SCREEN_H / 2
+        max_cx   = self.map_w * TILE - SCREEN_W
+        max_cy   = self.map_h * TILE - SCREEN_H
+        target_x = max(0, min(target_x, max_cx))
+        target_y = max(0, min(target_y, max_cy))
+        self.cam_x += (target_x - self.cam_x) * 0.12
+        self.cam_y += (target_y - self.cam_y) * 0.12
+
+    # ── Drawing ───────────────────────────────────────────────────────────────
+
+    def _draw(self):
+        ox, oy = self.shake.update()
+        zoom   = self.cam_zoom
+        cam_x  = int(self.cam_x) + ox
+        cam_y  = int(self.cam_y) + oy
+
+        if zoom != 1.0:
+            render_surf = pygame.Surface((SCREEN_W, SCREEN_H))
+            self._draw_world(render_surf, cam_x, cam_y)
+            scaled_w = int(SCREEN_W * zoom)
+            scaled_h = int(SCREEN_H * zoom)
+            scaled   = pygame.transform.scale(render_surf, (scaled_w, scaled_h))
+            bx = (SCREEN_W - scaled_w) // 2
+            by = (SCREEN_H - scaled_h) // 2
+            self.screen.fill((0, 0, 0))
+            self.screen.blit(scaled, (bx, by))
+        else:
+            self._draw_world(self.screen, cam_x, cam_y)
+
+        self._draw_hud()
+        self._draw_minimap()
+        if self.item_choice_active:
+            self._draw_item_choice()
+        if self.room_intro_timer > 0:
+            self._draw_room_intro()
+            self.room_intro_timer -= 1
+        if not self.player.alive:
+            self._draw_death_screen()
+
+    def _draw_world(self, surface, cam_x, cam_y):
+        sp    = self.player
+        block = (pygame.mouse.get_pressed()[2]
+                 and sp._has_shield()
+                 and not sp.shield_broken
+                 and sp.dodge_timer == 0
+                 and sp.flinch_timer == 0)
+
+        surface.fill(C_BG)
+        self._draw_tiles(surface, cam_x, cam_y)
+        self._draw_campfires(surface, cam_x, cam_y)
+        self._draw_fountain(surface, cam_x, cam_y)
+        self._draw_item_pedestal(surface, cam_x, cam_y)
+        self._draw_floor_portal(surface, cam_x, cam_y)
+        self.particles.draw(surface, cam_x, cam_y)
+
+        for e in self.enemies:
+            e.draw(surface, cam_x, cam_y)
+        if self.boss:
+            self.boss.draw(surface, cam_x, cam_y)
+        for arrow in self.arrows:
+            arrow.draw(surface, cam_x, cam_y)
+        sp.draw(surface, cam_x, cam_y, block)
+
+        self._draw_trees(surface, cam_x, cam_y)
+        self.damage_numbers.draw(surface, cam_x, cam_y)
+        self.flash.draw(surface)
+
+    def _draw_tiles(self, surface, cam_x, cam_y):
+        tx_start = max(0, cam_x // TILE)
+        ty_start = max(0, cam_y // TILE)
+        tx_end   = min(self.map_w, tx_start + SCREEN_W // TILE + 2)
+        ty_end   = min(self.map_h, ty_start + SCREEN_H // TILE + 2)
+        for ty in range(ty_start, ty_end):
+            for tx in range(tx_start, tx_end):
+                sx = tx * TILE - cam_x
+                sy = ty * TILE - cam_y
+                draw_tile(surface, tx, ty, sx, sy, self.get_tile)
+
+    def _draw_trees(self, surface, cam_x, cam_y):
+        for tx, ty, size in self.trees:
+            sx = tx * TILE - cam_x
+            sy = ty * TILE - cam_y
+            if (-TILE * 2 < sx < SCREEN_W + TILE * 2
+                    and -TILE * 2 < sy < SCREEN_H + TILE * 2):
+                palette = self.palette_map.get(
+                    (tx, ty), ((100, 65, 30), (45, 130, 40), (30, 100, 25)))
+                draw_tree(surface, tx, ty, size, palette, cam_x, cam_y)
+
+    def _draw_campfires(self, surface, cam_x, cam_y):
+        for cx, cy in self.campfire_positions:
+            sx   = int(cx - cam_x); sy = int(cy - cam_y)
+            puls = 0.5 + 0.5 * math.sin(self.tick * 0.12)
+            r    = int(10 + puls * 4)
+            gs   = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(gs, (255, int(120 + puls * 80), 0, int(80 + puls * 60)),
+                               (r + 2, r + 2), r)
+            surface.blit(gs, (sx - r - 2, sy - r - 2))
+            pygame.draw.circle(surface, (255, 200, 80), (sx, sy), 5)
+
+    def _draw_fountain(self, surface, cam_x, cam_y):
+        if not self.fountain_pos:
+            return
+        fx, fy = self.fountain_pos
+        sx   = int(fx - cam_x); sy = int(fy - cam_y)
+        puls = 0.5 + 0.5 * math.sin(self.tick * 0.1)
+        kl   = (int(60 + puls * 40), int(160 + puls * 60), 255)
+        pygame.draw.circle(surface, (30, 80, 140), (sx, sy), 22)
+        pygame.draw.circle(surface, kl, (sx, sy), 18)
+        pygame.draw.circle(surface, (180, 220, 255), (sx, sy), 18, 2)
+        if not self.fountain_used:
+            t = self.font_s.render("Fontein  [loop erheen]", True, (180, 220, 255))
+            surface.blit(t, (sx - t.get_width() // 2, sy - 36))
+
+    def _draw_item_pedestal(self, surface, cam_x, cam_y):
+        if not self.item_pedestal_pos or self.item_choice_active:
+            return
+        px, py = self.item_pedestal_pos
+        sx   = int(px - cam_x); sy = int(py - cam_y)
+        puls = 0.5 + 0.5 * math.sin(self.tick * 0.09)
+        pygame.draw.rect(surface, (100, 85, 70), (sx - 18, sy - 10, 36, 20))
+        pygame.draw.rect(surface, (140, 120, 95), (sx - 18, sy - 10, 36, 20), 2)
+        pygame.draw.circle(surface, (255, int(180 + puls * 60), 50),
+                           (sx, sy - 18), int(10 + puls * 3))
+        t = self.font_s.render("Item  [loop erheen]", True, (255, 220, 120))
+        surface.blit(t, (sx - t.get_width() // 2, sy - 42))
+
+    def _draw_floor_portal(self, surface, cam_x, cam_y):
+        if not self.floor_portal_open:
+            return
+        cx   = MAP_WIDTH  // 2 * TILE + TILE // 2
+        cy   = MAP_HEIGHT // 2 * TILE + TILE // 2
+        sx   = int(cx - cam_x); sy = int(cy - cam_y)
+        puls = 0.5 + 0.5 * math.sin(self.tick * 0.1)
+        r    = int(28 + puls * 8)
+        gs   = pygame.Surface((r * 2 + 8, r * 2 + 8), pygame.SRCALPHA)
+        pygame.draw.circle(gs, (80, 200, 255, int(100 + puls * 80)),
+                           (r + 4, r + 4), r)
+        surface.blit(gs, (sx - r - 4, sy - r - 4))
+        pygame.draw.circle(surface, (120, 220, 255), (sx, sy), 22)
+        pygame.draw.circle(surface, (200, 240, 255), (sx, sy), 22, 3)
+        t = self.font_s.render("Volgende floor  [loop erheen]", True, (200, 240, 255))
+        surface.blit(t, (sx - t.get_width() // 2, sy - 42))
+
+    def _draw_hud(self):
+        sp = self.player
+
+        hp_w = 180
+        hp_r = max(0, sp.hp / sp.hp_max)
+        pygame.draw.rect(self.screen, (60, 20, 20),  (10, 10, hp_w, 18))
+        pygame.draw.rect(self.screen, (220, 60, 60), (10, 10, int(hp_w * hp_r), 18))
+        pygame.draw.rect(self.screen, (255, 120, 120), (10, 10, hp_w, 18), 1)
+        t = self.font_s.render(f"HP  {int(sp.hp)}/{int(sp.hp_max)}", True, (255, 200, 200))
+        self.screen.blit(t, (14, 12))
+
+        st_w  = 180
+        st_r  = max(0, sp.stamina / sp.stamina_max)
+        st_kl = (255, 200, 50) if sp.shield_broken else (80, 200, 120)
+        pygame.draw.rect(self.screen, (20, 50, 30),   (10, 32, st_w, 12))
+        pygame.draw.rect(self.screen, st_kl,           (10, 32, int(st_w * st_r), 12))
+        pygame.draw.rect(self.screen, (120, 220, 160), (10, 32, st_w, 12), 1)
+        if sp.shield_broken:
+            t = self.font_s.render("SCHILD GEBROKEN", True, (255, 120, 50))
+            self.screen.blit(t, (14, 34))
+
+        items   = self.save.get("items", [])
+        charges = self.save.get("item_charges", {})
+        active  = [k for k in items if ITEMS[k]["type"] == "actief"]
+        if active:
+            key  = active[0]
+            item = ITEMS[key]
+            c    = charges.get(key, item.get("charges", 1))
+            kl   = item["kleur"]
+            t    = self.font_s.render(f"[Q] {item['naam']}  x{c}", True, kl)
+            self.screen.blit(t, (10, 50))
+
+        step = sp.combo_step
+        if step > 0 or sp.finisher_windup > 0:
+            dots = []
+            for i in range(1, 4):
+                if i < step:
+                    dots.append("●")
+                elif i == step and sp.finisher_windup > 0:
+                    dots.append("◎")
+                elif i == step:
+                    dots.append("◉")
+                else:
+                    dots.append("○" if sp.combo_window > 0 else "·")
+            kl = (255, 220, 100) if sp.combo_window > 0 else (120, 100, 60)
+            t  = self.font_m.render("  ".join(dots), True, kl)
+            self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, SCREEN_H - 38))
+
+        if sp.has_active_effect("invis"):
+            t = self.font_s.render("● ONKWETSBAAR", True, (100, 200, 255))
+            self.screen.blit(t, (SCREEN_W - t.get_width() - 10, 10))
+
+        room          = self.floor_graph[self.current_pos]
+        combat_rooms  = [p for p, r in self.floor_graph.items() if r["type"] == "combat"]
+        visited_combat = sum(1 for p in combat_rooms if self.floor_graph[p]["visited"])
+        label = self.level_mgr.description(visited_combat, len(combat_rooms))
+        t = self.font_s.render(label, True, (180, 200, 180))
+        self.screen.blit(t, (SCREEN_W - t.get_width() - 10, SCREEN_H - 24))
+
+        if self.boss:
+            bw    = 400
+            bx    = SCREEN_W // 2 - bw // 2
+            by    = SCREEN_H - 52
+            ratio = max(0, self.boss.hp / self.boss.hp_max)
+            kl_b  = (255, 100, 20) if self.boss.phase2 else (220, 60, 60)
+            pygame.draw.rect(self.screen, (50, 20, 20), (bx, by, bw, 20))
+            pygame.draw.rect(self.screen, kl_b,         (bx, by, int(bw * ratio), 20))
+            pygame.draw.rect(self.screen, (200, 160, 120), (bx, by, bw, 20), 2)
+            label = ("☠  De Boskrijger  [FASE 2]  ☠" if self.boss.phase2
+                     else "☠  De Boskrijger  ☠")
+            t = self.font_s.render(label, True, (220, 180, 120))
+            self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, by - 18))
+
+        items_passive = [k for k in items if ITEMS[k]["type"] == "passief"]
+        for i, key in enumerate(items_passive):
+            item = ITEMS[key]
+            t    = self.font_s.render(f"● {item['naam']}", True, item["kleur"])
+            self.screen.blit(t, (SCREEN_W - t.get_width() - 10, 30 + i * 18))
+
+    def _draw_minimap(self):
+        room_size = 10; gap = 3; padding = 8
+        positions = list(self.floor_graph.keys())
+        if not positions:
+            return
+        min_gx = min(p[0] for p in positions); max_gx = max(p[0] for p in positions)
+        min_gy = min(p[1] for p in positions); max_gy = max(p[1] for p in positions)
+        cols  = max_gx - min_gx + 1; rows = max_gy - min_gy + 1
+        map_w = cols * (room_size + gap) - gap + padding * 2
+        map_h = rows * (room_size + gap) - gap + padding * 2
+        ox    = SCREEN_W - map_w - 10
+        oy    = SCREEN_H - map_h - 40
+
+        bg = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
+        bg.fill((0, 0, 0, 120))
+        self.screen.blit(bg, (ox, oy))
+
+        for pos, room in self.floor_graph.items():
+            gx, gy = pos
+            rx = ox + padding + (gx - min_gx) * (room_size + gap)
+            ry = oy + padding + (gy - min_gy) * (room_size + gap)
+            if not room["visited"]:
+                pygame.draw.rect(self.screen, (50, 50, 50),
+                                 (rx, ry, room_size, room_size))
+                continue
+            if room["type"] == "boss":       kl = (220, 60, 60)
+            elif room["type"] == "rest":     kl = (60, 180, 120)
+            elif room["cleared"]:            kl = (80, 120, 80)
+            else:                            kl = (160, 160, 80)
+            pygame.draw.rect(self.screen, kl, (rx, ry, room_size, room_size))
+            if pos == self.current_pos:
+                pygame.draw.rect(self.screen, (255, 255, 255),
+                                 (rx, ry, room_size, room_size), 2)
+
+    def _draw_item_choice(self):
+        overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 170))
+        self.screen.blit(overlay, (0, 0))
+
+        t = self.font_m.render("Kies een item  [1 / 2 / 3]", True, (220, 200, 120))
+        self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, 80))
+
+        card_w, card_h = 200, 220
+        total_w = len(self.item_choices) * (card_w + 20) - 20
+        start_x = SCREEN_W // 2 - total_w // 2
+
+        for i, key in enumerate(self.item_choices):
+            item = ITEMS[key]
+            cx   = start_x + i * (card_w + 20)
+            cy   = SCREEN_H // 2 - card_h // 2
+
+            pygame.draw.rect(self.screen, (40, 35, 30),
+                             (cx, cy, card_w, card_h), border_radius=8)
+            pygame.draw.rect(self.screen, item["kleur"],
+                             (cx, cy, card_w, card_h), 2, border_radius=8)
+
+            rarity_kl = RARITY_COLOR.get(item["rarity"], (160, 160, 160))
+            rt = self.font_s.render(RARITY_NAME.get(item["rarity"], ""), True, rarity_kl)
+            self.screen.blit(rt, (cx + card_w // 2 - rt.get_width() // 2, cy + 10))
+
+            pygame.draw.circle(self.screen, item["kleur"],
+                               (cx + card_w // 2, cy + 70), 28)
+            pygame.draw.circle(self.screen, item["kleur_dim"],
+                               (cx + card_w // 2, cy + 70), 28, 3)
+
+            nt = self.font_m.render(item["naam"], True, (240, 230, 210))
+            self.screen.blit(nt, (cx + card_w // 2 - nt.get_width() // 2, cy + 108))
+
+            for j, line in enumerate(item["beschrijving"].split("\n")):
+                dt = self.font_s.render(line, True, (180, 170, 150))
+                self.screen.blit(dt, (cx + card_w // 2 - dt.get_width() // 2,
+                                      cy + 138 + j * 18))
+
+            ht = self.font_m.render(f"[{i+1}]", True, (220, 200, 100))
+            self.screen.blit(ht, (cx + card_w // 2 - ht.get_width() // 2,
+                                  cy + card_h - 30))
+
+    def _draw_room_intro(self):
+        alpha = min(255, self.room_intro_timer * 6)
+        room  = self.floor_graph[self.current_pos]
+        if room["type"] == "boss":
+            text = "⚔  EINDBAAS  ⚔"; kl = (255, 80, 40)
+        elif room["type"] == "rest":
+            text = "Rustplaats";      kl = (80, 200, 140)
+        else:
+            text = self.level_mgr.description(); kl = (200, 200, 160)
+        t = self.font_g.render(text, True, kl)
+        t.set_alpha(alpha)
+        self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, SCREEN_H // 2 - 40))
+
+    def _draw_death_screen(self):
+        overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 160))
+        self.screen.blit(overlay, (0, 0))
+        t1 = self.font_g.render("Je bent gevallen...", True, (220, 60, 60))
+        t2 = self.font_m.render("Druk op R om opnieuw te beginnen",
+                                True, (180, 140, 140))
+        self.screen.blit(t1, (SCREEN_W // 2 - t1.get_width() // 2, SCREEN_H // 2 - 60))
+        self.screen.blit(t2, (SCREEN_W // 2 - t2.get_width() // 2, SCREEN_H // 2 + 10))
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_r]:
+            self.save["items"]          = []
+            self.save["item_charges"]   = {}
+            self.save["active_effects"] = {"invis": 0, "fire_potion": 0}
+            save_game(self.save)
+            self.level_mgr = LevelManager()
+            self.player    = None
+            self._generate_floor(first=True)

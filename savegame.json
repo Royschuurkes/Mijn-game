@@ -1,8 +1,9 @@
 {
-  "wapen": "schild",
+  "weapon": "shield",
+  "highest_floor": 0,
   "items": [],
   "item_charges": {},
-  "actieve_effecten": {
+  "active_effects": {
     "invis": 0,
     "fire_potion": 0
   }

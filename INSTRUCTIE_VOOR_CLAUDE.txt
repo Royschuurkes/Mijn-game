@@ -1,123 +1,215 @@
-INSTRUCTIE VOOR CLAUDE - RPG GAME PROJECT
-==========================================
+INSTRUCTIONS FOR CLAUDE - RPG GAME PROJECT
 
-Hallo! Dit is een lopend game-development project. Lees deze instructie
-goed door voordat je iets doet, zodat we gericht kunnen werken.
+Hello! This is an ongoing game development project. Please read these instructions carefully before doing anything, so we can work in a focused and efficient way.
 
+WHO I AM
 
--- WIE BEN IK ------------------------------------------------------------------
+My name is Roy. I am a beginner programmer and I learn by doing.
 
-Ik ben Roy, een beginner op het gebied van programmeren. Ik leer al doende.
-Leg dingen uit als dat nodig is, maar ga niet overmatig uitleggen als ik
-gewoon iets wil bouwen. Houd het praktisch.
+Explain things when necessary, but do not over-explain if I simply want to build something. Keep it practical, hands-on, and focused on getting things working.
 
+WHAT WE ARE BUILDING
 
--- WAT BOUWEN WE ---------------------------------------------------------------
+A top-down 2D RPG / roguelite in Python using Pygame.
 
-Een top-down 2D RPG/roguelite in Python met Pygame.
-Artstyle: simpele shapes + juice (particles, screenshake, etc.)
-Geen externe assets, alles procedureel gegenereerd.
+Story direction (not implemented yet)
 
-Het verhaal (nog niet geimplementeerd):
-  De speler woont in een kasteel. Zijn zus is getrouwd met de prins.
-  Hun dochtertje (het nichtje van de speler) is vermist/ontvoerd.
-  Doel: ga het bos in, vecht je een weg door aaneengeschakelde kamers,
-  versla de eindbaas en red je nichtje.
+The story still needs to be developed, but it should have a mysterious medieval atmosphere. The idea is that a hero (the player) is forced to enter the forest in search of something, and along the way must fight many enemies. I am thinking about some kind of curse that needs to be lifted, or something along those lines. This can be developed later.
 
-Kernmechanics:
-  - WASD beweging, speler kijkt naar muiscursor
-  - Spatiebalk: dodge (kost stamina)
-  - LMB: normale aanval (kost stamina)
-  - RMB: special attack (wapen-specifiek) OF blokkeren (alleen met schild)
-  - Speler BEGINT ZONDER SCHILD - schild is iets dat je koopt
-  - Flinch + knockback bij hits (speler en vijanden)
-  - Struiken doen schade over tijd
-  - Squash en stretch animaties op speler en vijanden
-  - Camera smoothing (volgt speler met lichte vertraging)
+CORE GAMEPLAY MECHANICS
 
-Roguelite loop:
-  - Speler begint in het kasteel (hub)
-  - Gaat bos in via de smid-/exitdeur -> aaneengeschakelde arena-kamers
-  - Elke 3e kamer: rustplaats met HP-fontein
-  - Elke 5e kamer: eindbaas
-  - Bij dood: terug naar hub, progressie (gold/XP/level) blijft bewaard
-  - In hub: ability points bij standbeeld, wapens kopen bij smid
+WASD movement
 
-Progressie systeem:
-  - Stats: HP, Stamina, Mana, Strength, Dexterity, Intelligence
-  - Ability points verdienen via XP/leveling
-  - Gold droppen van vijanden -> wapens kopen bij smid
-  - Stamina regen is percentage-based (25% van max per seconde)
-  - Schild blokkeert 70% schade (niet 100%)
+The player always faces the mouse cursor
 
-test append
+Spacebar = dodge (costs stamina)
 
+Left mouse button = normal attack (costs stamina)
 
--- BESTANDSSTRUCTUUR --
+Right mouse button = weapon-specific special attack OR block (shield only)
 
-  main.py          - startpunt, scene manager
-  opslaan.py       - constanten, save/load, stat berekeningen
-  entiteiten.py    - Speler, Vijand, Pijl (squash/stretch, ease curves, wind-up)
-  kaart.py         - arena kaartgeneratie (BoI/Archero stijl, 26x20)
-  hub.py           - kasteel binnenplein
-  bos.py           - bos gevecht scene + camera smoothing
-  juice.py         - visuele effecten
-  level_manager.py - kamer types en moeilijkheid
-  wapens.py        - ALLE wapen definities op een plek (hier tweaken!)
-  smid.py          - smid shop UI
-  geluid.py        - procedurele geluidseffecten (geen externe files nodig)
-  savegame.json    - automatisch aangemaakt
+Additional combat/game feel features:
 
-Starten: py -3.12 main.py
+Flinch and knockback on hit (for both player and enemies)
 
+Bushes deal damage over time
 
--- WAPENS SYSTEEM --
+Squash and stretch animations on both player and enemies
 
-Speler BEGINT ZONDER SCHILD. Schild is een item dat je koopt.
-RMB met wapen = special attack. RMB met schild = blokkeren.
-Je kunt nooit tegelijk schild en special hebben.
+Camera smoothing that follows the player with slight delay
 
-Beschikbare wapens (allemaal in wapens.py):
-  simpel_zwaard  - startwapen, geen special
-  schild         - 80g, blokkeert 70% schade, geen special
-  rapier         - 120g, DEX 3 vereist, special: stoot vooruit
-  grote_bijl     - 150g, STR 3 vereist, special: brede sweep
-  dolk           - 200g, DEX 5 vereist, special: dash naar vijand
-  hamer          - 250g, STR 5 vereist, special: grondstamp AoE
+ROGUELITE LOOP
 
--- VIJANDEN --
-  melee  - rood, loopt naar speler
-  ranged - paars, houdt afstand, schiet pijlen
-  baas   - elke 5e kamer, 5x HP
-  wolf   - NOG TE BOUWEN: stap achteruit, oplicht, sprint-aanval
+The player starts in the castle (hub)
 
--- TECHNISCH --
-Python 3.12, Pygame 2.6.1, numpy (voor geluid)
-Geen externe libraries. Alles in het Nederlands.
-Code als .txt aanleveren, Roy hernoemt naar .py
-Wapen getallen ALLEEN aanpassen in wapens.py
+From the hub, the player enters the forest
+
+The forest contains levels -> floors -> multiple connected arena rooms
+
+Each floor has:
+
+one rest room
+
+one boss room at the end
+
+On death:
+
+the player returns to the hub
+
+the player loses items
+
+FILE STRUCTURE
+
+main.py - entry point, scene manager
+
+opslaan.py - constants, save/load, stat calculations
+
+entiteiten.py - Player, Enemy, Arrow (squash/stretch, ease curves, wind-up)
+
+kaart.py - arena map generation (Binding of Isaac / Archero style, 26x20)
+
+hub.py - castle courtyard
+
+bos.py - forest combat scene + camera smoothing
+
+juice.py - visual effects
+
+level_manager.py - room types and difficulty
+
+wapens.py - ALL weapon definitions in one place (tweak values here)
+
+geluid.py - procedural sound effects (no external files needed for now, those can come later)
+
+savegame.json - auto-generated
+
+Run with:
+
+py -3.12 main.py
+
+WEAPON SYSTEM
+
+Right mouse button with a shield = block
+
+ENEMIES
+
+melee - red, moves directly toward the player
+
+ranged - purple, keeps distance, shoots arrows
+
+boss - every 5th room, 5x HP
+
+wolf - TO BE BUILT: steps back, glows, then performs a sprint attack
+
+TECHNICAL CONSTRAINTS
+
+Python 3.12
+
+Pygame 2.6.1
+
+NumPy (for sound)
+
+No external libraries
+
+Everything in Dutch
+
+Deliver code as .txt files, Roy will rename them to .py
+
+Weapon numbers should ONLY be changed in wapens.py
+
 GitHub: Royschuurkes
 
--- WAT NOG GEBOUWD MOET WORDEN (prioriteit) --
+HOW WE WORK TOGETHER
 
-Voordat we de wolf gaan toevoegen zijn er 4 dingen die ik wil aanpassen: 
+At the start of each chat, Roy shares the instructions and the current project files.
 
-als ik nu een schild koop bij de smid en me daarmee uitrust, kan ik niet meer aanvallen. Ik hoor hierbij gewoon mijn simpele startzwaard nog te kunnen gebruiken.
-de portal om naar een nieuw level te gaan is nu wel netjes aan het einde van een pad, dat is top. maar ik wil eigenlijk dat hij tegen het einde van de boomgrens zit zodat het voelt alsof je naar het volgende stukje bos loopt. Als je dus helemaal rechts naar het nieuwe level gaat, wil ik in het nieuwe level helemaal links weer terug kunnen lopen naar het oude level. Begrijp je wat ik bedoel?
-Ik wil ergens (misschien bij het standbeeld) de mogelijkheid om alles te resetten. Dus weer op level 0, met 0 gold, en niets gekocht bij de blacksmith.
-Het geluid werkt alleen in het bos, maar in de hub wil ik ook geluid (in ieder geval voetstappen)
+You should:
 
-1. Wolf enemy (sprint aanval mechaniek)
-2. Verhaal intro scherm
-3. Bibliotheek (magische spreuken)
-4. BoI-stijl portals (grote architectuurwijziging)
-5. Eindbaas met unieke mechanics
-6. Meerdere biomes
-7. PyInstaller .exe voor vrienden
--- HOE WE SAMENWERKEN --
-Roy deelt instructie + bestanden aan het begin van elke chat.
-Claude leest code eerst. Een feature tegelijk.
+Read the code first before suggesting changes
 
-==========================================
+Work on one feature at a time
 
+Treat the current game code as the source of truth
 
+Important: these written instructions may sometimes differ slightly from the current state of the code, because the project is constantly evolving. When that happens, the actual codebase is leading. Follow the code first, and treat these instructions as design direction rather than absolute truth.
+
+CURRENT PRIORITY
+
+Our main priority right now is not story, hub content, additional levels, or deeper progression systems.
+
+The current focus is to make the first level, The Forest, feel really good to play.
+
+The game should feel:
+
+flashy
+
+responsive
+
+smooth
+
+satisfying
+
+readable but not too easy
+
+The main inspirations are:
+
+The Binding of Isaac
+
+Archero
+
+Hades / Hades II for combat feel
+
+Right now, the most important goal is to improve the combat feel in The Forest. That includes things like:
+
+better moment-to-moment combat flow
+
+stronger combo feel
+
+better enemy interaction
+
+better control over the hero
+
+more satisfying impact and responsiveness
+
+a difficulty level that is engaging and not too easy
+
+pushing the combat feel more toward Hades-style combat
+
+Only after the combat in The Forest feels genuinely good should we move on to:
+
+tweaking items
+
+improving map generation
+
+expanding enemies
+
+adding more levels
+
+developing the story
+
+adding meaningful hub content
+
+HOW I WANT YOU TO RESPOND
+
+When helping me, please follow these guidelines:
+
+First inspect the current code and base your advice on what is actually there
+
+Be practical and implementation-focused
+
+Do not rewrite large parts of the project unless necessary
+
+Prefer clear, incremental improvements over huge redesigns
+
+When proposing a feature, explain briefly what will change and why
+
+When useful, give me the exact code I can place into the project
+
+Keep code consistent with the current architecture and file structure
+
+If something is unclear or inconsistent, point it out directly
+
+Help me build step by step
+
+Prioritize feel, responsiveness, and gameplay quality over abstract system design
+
+If I ask for a new feature or improvement, help me implement it in the simplest solid way first. We can polish or refactor later.
