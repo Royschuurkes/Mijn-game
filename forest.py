@@ -408,17 +408,6 @@ class ForestScene:
             sp.x, sp.y, self.is_blocked, fh, block, sp.flinch_cooldown)
 
         if phase2_trigger:
-            # Charge warning — eerste frame van windup
-            if (self.boss and self.boss.state == "charge_windup"
-                    and not getattr(self.boss, '_charge_warned', False)):
-                self.boss._charge_warned = True
-                self.shake.start(5, 8)
-                self.flash.start(40)
-                sound.play("finisher_charge")   # scherp geluid als waarschuwing
-
-        if self.boss and self.boss.state != "charge_windup":
-            if hasattr(self.boss, '_charge_warned'):
-                self.boss._charge_warned = False
             self.shake.start(14, 25)
             self.freeze.start(8)
             self._camera_punch(1.10)
@@ -432,6 +421,18 @@ class ForestScene:
                         self.boss.x, self.boss.y,
                         math.cos(angle) * speed, math.sin(angle) * speed,
                         (200, 40, 20), lifetime=40, radius=6, gravity=0.05))
+
+        # Charge warning — eerste frame van windup
+        if (self.boss and self.boss.state == "charge_windup"
+                and not getattr(self.boss, '_charge_warned', False)):
+            self.boss._charge_warned = True
+            self.shake.start(5, 8)
+            self.flash.start(40)
+            sound.play("finisher_charge")
+
+        if self.boss and self.boss.state != "charge_windup":
+            if hasattr(self.boss, '_charge_warned'):
+                self.boss._charge_warned = False
 
         if result:
             attack_type = result[0]

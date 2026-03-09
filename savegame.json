@@ -1,8 +1,12 @@
 {
   "weapon": "shield",
-  "highest_floor": 0,
-  "items": [],
-  "item_charges": {},
+  "highest_floor": 1,
+  "items": [
+    "health_potion"
+  ],
+  "item_charges": {
+    "health_potion": 1
+  },
   "active_effects": {
     "invis": 0,
     "fire_potion": 0
