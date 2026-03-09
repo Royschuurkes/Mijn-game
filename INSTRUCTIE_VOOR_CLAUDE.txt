@@ -14,7 +14,7 @@ A top-down 2D RPG / roguelite in Python using Pygame.
 
 Story direction (not implemented yet)
 
-The story still needs to be developed, but it should have a mysterious medieval atmosphere. The idea is that a hero (the player) is forced to enter the forest in search of something, and along the way must fight many enemies. I am thinking about some kind of curse that needs to be lifted, or something along those lines. This can be developed later.
+The story still needs to be developed, but it should have a mysterious medieval atmosphere. The idea is that a hero (the player) is forced to enter the forest in search of something that is plagueing the lang with a curse, and along the way must fight many enemies that are afflicted by this curse. This can be developed later.
 
 CORE GAMEPLAY MECHANICS
 
@@ -22,17 +22,17 @@ WASD movement
 
 The player always faces the mouse cursor
 
-Spacebar = dodge (costs stamina)
+Spacebar = dodge
 
-Left mouse button = normal attack (costs stamina)
+Spacebar HOLD = sprint
 
-Right mouse button = weapon-specific special attack OR block (shield only)
+Left mouse button = Normal attack
+
+Right mouse button = Block
 
 Additional combat/game feel features:
 
 Flinch and knockback on hit (for both player and enemies)
-
-Bushes deal damage over time
 
 Squash and stretch animations on both player and enemies
 
@@ -42,13 +42,14 @@ ROGUELITE LOOP
 
 The player starts in the castle (hub)
 
-From the hub, the player enters the forest
+From the hub, the player selects a level. Level 1 is the forest, level 2 is not developed yet but might be the dark forest, lever 3 might be the mountians etc. etc. 
 
-The forest contains levels -> floors -> multiple connected arena rooms
-
+Eacht level contains multiple floors 
 Each floor has:
 
-one rest room
+Multiple connected rooms, the deeper the floor the more rooms.
+
+one rest room containing a healing fountain and a powerful item
 
 one boss room at the end
 
@@ -58,63 +59,13 @@ the player returns to the hub
 
 the player loses items
 
-FILE STRUCTURE
-
-main.py - entry point, scene manager
-
-opslaan.py - constants, save/load, stat calculations
-
-entiteiten.py - Player, Enemy, Arrow (squash/stretch, ease curves, wind-up)
-
-kaart.py - arena map generation (Binding of Isaac / Archero style, 26x20)
-
-hub.py - castle courtyard
-
-bos.py - forest combat scene + camera smoothing
-
-juice.py - visual effects
-
-level_manager.py - room types and difficulty
-
-wapens.py - ALL weapon definitions in one place (tweak values here)
-
-geluid.py - procedural sound effects (no external files needed for now, those can come later)
-
-savegame.json - auto-generated
-
-Run with:
-
-py -3.12 main.py
-
-WEAPON SYSTEM
-
-Right mouse button with a shield = block
-
-ENEMIES
-
-melee - red, moves directly toward the player
-
-ranged - purple, keeps distance, shoots arrows
-
-boss - every 5th room, 5x HP
-
-wolf - TO BE BUILT: steps back, glows, then performs a sprint attack
-
 TECHNICAL CONSTRAINTS
 
 Python 3.12
 
 Pygame 2.6.1
 
-NumPy (for sound)
-
-No external libraries
-
-Everything in Dutch
-
-Deliver code as .txt files, Roy will rename them to .py
-
-Weapon numbers should ONLY be changed in wapens.py
+NumPy (for sound, for now this must be improved later)
 
 GitHub: Royschuurkes
 
@@ -124,11 +75,11 @@ At the start of each chat, Roy shares the instructions and the current project f
 
 You should:
 
-Read the code first before suggesting changes
+Read the instruction and the code first before suggesting changes
 
 Work on one feature at a time
 
-Treat the current game code as the source of truth
+Treat the current game code as the source of truth, the instruction is purely to get an idea of what our goal is but the game code tells you 
 
 Important: these written instructions may sometimes differ slightly from the current state of the code, because the project is constantly evolving. When that happens, the actual codebase is leading. Follow the code first, and treat these instructions as design direction rather than absolute truth.
 
@@ -174,7 +125,7 @@ a difficulty level that is engaging and not too easy
 
 pushing the combat feel more toward Hades-style combat
 
-Only after the combat in The Forest feels genuinely good should we move on to:
+Only after the combat feels genuinely good should we move on to:
 
 tweaking items
 
@@ -196,13 +147,9 @@ First inspect the current code and base your advice on what is actually there
 
 Be practical and implementation-focused
 
-Do not rewrite large parts of the project unless necessary
-
 Prefer clear, incremental improvements over huge redesigns
 
 When proposing a feature, explain briefly what will change and why
-
-When useful, give me the exact code I can place into the project
 
 Keep code consistent with the current architecture and file structure
 
