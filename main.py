@@ -6,8 +6,11 @@ import sound
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-    pygame.display.set_caption("Het Bos")
+
+    # FULLSCREEN | SCALED: pygame renders at SCREEN_W x SCREEN_H internally
+    # and scales it to fill the monitor automatically, including mouse coordinates.
+    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.FULLSCREEN | pygame.SCALED)
+    pygame.display.set_caption("The Forest")
     clock = pygame.time.Clock()
 
     sound.init_sound()
