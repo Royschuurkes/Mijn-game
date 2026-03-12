@@ -168,8 +168,8 @@ class LevelManager:
     def is_combat(self): return self.room_type == "combat"
 
     def description(self, room_num=None, total=None):
-        if self.is_rest: return f"Floor {self.floor_num}  -  Rustplaats"
-        if self.is_boss: return f"Floor {self.floor_num}  -  EINDBAAS!"
+        if self.is_rest: return f"Floor {self.floor_num}  -  Rest Room"
+        if self.is_boss: return f"Floor {self.floor_num}  -  BOSS!"
         if room_num and total:
-            return f"Floor {self.floor_num}  -  Kamer {room_num}/{total}"
+            return f"Floor {self.floor_num}  -  Room {room_num}/{total}"
         return f"Floor {self.floor_num}"

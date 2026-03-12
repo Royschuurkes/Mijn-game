@@ -98,6 +98,8 @@ class ForestScene:
         self.enemies            = []
         self.boss               = None
         self.campfire_positions = []
+        self.equip_menu_active  = False
+        self.equip_cursor       = 0   # 0 = weapons, 1 = shields
 
         if not room["cleared"]:
             for group in room["enemy_config"]:
@@ -191,9 +193,19 @@ class ForestScene:
                 return "quit"
             if e.type == pygame.KEYDOWN:
                 if e.key == pygame.K_ESCAPE:
-                    return "quit"
+                    if self.equip_menu_active:
+                        self.equip_menu_active = False
+                    else:
+                        return "quit"
                 if e.key == pygame.K_q:
                     self._use_active_item()
+                if e.key == pygame.K_TAB:
+                    self.equip_menu_active = not self.equip_menu_active
+                    self.equip_cursor = 0
+
+        if self.equip_menu_active:
+            self._handle_equip_events(events)
+            return None
 
         if self.item_choice_active:
             for e in events:
@@ -210,7 +222,7 @@ class ForestScene:
         items   = self.save.get("items", [])
         charges = self.save.get("item_charges", {})
         effects = self.save.get("active_effects", {})
-        active_items = [k for k in items if ITEMS[k]["type"] == "actief"]
+        active_items = [k for k in items if ITEMS[k]["type"] == "active"]
         if not active_items:
             return
         key  = active_items[0]
@@ -219,9 +231,9 @@ class ForestScene:
         if c <= 0:
             return
         if key == "invis_potion":
-            effects["invis"] = item["duur"]
+            effects["invis"] = item["duration"]
         elif key == "fire_potion":
-            effects["fire_potion"] = item["duur"]
+            effects["fire_potion"] = item["duration"]
         elif key == "health_potion":
             heal = item.get("heal", 35)
             self.player.hp = min(self.player.hp_max, self.player.hp + heal)
@@ -237,7 +249,7 @@ class ForestScene:
         item    = ITEMS[key]
         items   = self.save.setdefault("items", [])
         charges = self.save.setdefault("item_charges", {})
-        if item["type"] == "passief":
+        if item["type"] == "passive":
             if key not in items:
                 items.append(key)
         else:
@@ -251,11 +263,152 @@ class ForestScene:
         self.item_pedestal_pos = None
         sound.play("level_up")
 
+    # ── Equipment menu ────────────────────────────────────────────────────────
+
+    def _handle_equip_events(self, events):
+        from weapons import WEAPONS, SHIELDS
+        inv_weapons = self.save.get("inventory_weapons", ["sword"])
+        inv_shields = self.save.get("inventory_shields", ["wooden_shield"])
+
+        for e in events:
+            if e.type != pygame.KEYDOWN:
+                continue
+            # Switch between weapon and shield tabs
+            if e.key in (pygame.K_LEFT, pygame.K_RIGHT):
+                self.equip_cursor = 1 - self.equip_cursor
+            # Number keys to equip
+            if e.key in (pygame.K_1, pygame.K_KP1):
+                self._equip_slot(0)
+            elif e.key in (pygame.K_2, pygame.K_KP2):
+                self._equip_slot(1)
+            elif e.key in (pygame.K_3, pygame.K_KP3):
+                self._equip_slot(2)
+            elif e.key in (pygame.K_4, pygame.K_KP4):
+                self._equip_slot(3)
+            elif e.key in (pygame.K_5, pygame.K_KP5):
+                self._equip_slot(4)
+            # 0 = unequip shield
+            elif e.key in (pygame.K_0, pygame.K_KP0):
+                if self.equip_cursor == 1:
+                    self.save["off_hand"] = None
+                    sound.play("level_up")
+
+    def _equip_slot(self, idx):
+        from weapons import WEAPONS, SHIELDS
+        if self.equip_cursor == 0:
+            inv = self.save.get("inventory_weapons", ["sword"])
+            if idx < len(inv):
+                self.save["main_hand"] = inv[idx]
+                sound.play("level_up")
+        else:
+            inv = self.save.get("inventory_shields", ["wooden_shield"])
+            if idx < len(inv):
+                self.save["off_hand"] = inv[idx]
+                sound.play("level_up")
+
+    def _draw_equip_menu(self):
+        from weapons import WEAPONS, SHIELDS, get_weapon, get_shield, combo_length
+        overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
+        t = self.font_m.render("Equipment  [Tab to close]", True, (220, 200, 120))
+        self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, 40))
+
+        # Tab indicators
+        tabs = ["Weapons  [←→]", "Shields  [←→]"]
+        for i, label in enumerate(tabs):
+            kl = (255, 220, 100) if i == self.equip_cursor else (120, 110, 80)
+            tt = self.font_s.render(label, True, kl)
+            x = SCREEN_W // 2 - 120 + i * 180
+            self.screen.blit(tt, (x, 72))
+            if i == self.equip_cursor:
+                pygame.draw.line(self.screen, kl, (x, 90), (x + tt.get_width(), 90), 2)
+
+        # Items
+        if self.equip_cursor == 0:
+            inv      = self.save.get("inventory_weapons", ["sword"])
+            equipped = self.save.get("main_hand", "sword")
+            items    = [(k, WEAPONS.get(k, {})) for k in inv]
+        else:
+            inv      = self.save.get("inventory_shields", ["wooden_shield"])
+            equipped = self.save.get("off_hand")
+            items    = [(k, SHIELDS.get(k, {})) for k in inv]
+
+        card_w, card_h = 160, 180
+        total_w = len(items) * (card_w + 16) - 16
+        start_x = SCREEN_W // 2 - total_w // 2
+
+        for i, (key, data) in enumerate(items):
+            cx = start_x + i * (card_w + 16)
+            cy = SCREEN_H // 2 - card_h // 2 + 20
+            is_equipped = (key == equipped)
+
+            # Card background
+            bg_kl = (50, 50, 40) if not is_equipped else (60, 55, 35)
+            pygame.draw.rect(self.screen, bg_kl,
+                             (cx, cy, card_w, card_h), border_radius=8)
+            border_kl = (255, 220, 80) if is_equipped else data.get("color", (140, 140, 140))
+            pygame.draw.rect(self.screen, border_kl,
+                             (cx, cy, card_w, card_h), 2, border_radius=8)
+
+            # Equipped badge
+            if is_equipped:
+                et = self.font_s.render("EQUIPPED", True, (255, 220, 80))
+                self.screen.blit(et, (cx + card_w // 2 - et.get_width() // 2, cy + 8))
+
+            # Weapon icon
+            icon_kl = data.get("color", (180, 180, 180))
+            pygame.draw.circle(self.screen, icon_kl,
+                               (cx + card_w // 2, cy + 55), 22)
+
+            # Name
+            nt = self.font_m.render(data.get("name", key), True, (240, 230, 210))
+            self.screen.blit(nt, (cx + card_w // 2 - nt.get_width() // 2, cy + 85))
+
+            # Stats
+            if self.equip_cursor == 0:
+                w = get_weapon(key)
+                stats = [
+                    f"DMG: {w['damage']:.0f}",
+                    f"Reach: {w['reach']}",
+                    f"Combo: {combo_length(w)} hits",
+                    f"Stam: {w['stamina_cost']}",
+                ]
+            else:
+                s = get_shield(key)
+                if s:
+                    stats = [
+                        f"Block: {s['stamina_cost']:.0f} stam",
+                        f"Parry: {s['parry_window']}f window",
+                    ]
+                else:
+                    stats = []
+
+            for j, line in enumerate(stats):
+                st = self.font_s.render(line, True, (160, 155, 140))
+                self.screen.blit(st, (cx + card_w // 2 - st.get_width() // 2,
+                                      cy + 112 + j * 16))
+
+            # Hotkey
+            ht = self.font_m.render(f"[{i+1}]", True, (200, 190, 140))
+            self.screen.blit(ht, (cx + card_w // 2 - ht.get_width() // 2,
+                                  cy + card_h - 26))
+
+        # Unequip hint for shields
+        if self.equip_cursor == 1:
+            ut = self.font_s.render("[0] Unequip shield", True, (140, 130, 110))
+            self.screen.blit(ut, (SCREEN_W // 2 - ut.get_width() // 2,
+                                  SCREEN_H // 2 + card_h // 2 + 50))
+
     # ── Update ────────────────────────────────────────────────────────────────
 
     def _update(self, events):
         sp = self.player
         if not sp.alive:
+            return
+
+        if self.equip_menu_active:
             return
 
         if self.transition_timer > 0:
@@ -342,7 +495,9 @@ class ForestScene:
         # ── Normale swing hit detection ───────────────────────────────────────
         hits = sp.sword_hits(targets)
 
-        if not hits and sp.combo_timer > 0 and sp.combo_timer == 9:
+        from weapons import combo_step_data as _csd
+        cur_swing = _csd(sp._weapon(), max(1, sp.combo_step))["swing_frames"] if sp.combo_step > 0 else 10
+        if not hits and sp.combo_timer > 0 and sp.combo_timer == cur_swing - 1:
             sound.play("sword_miss")
     
         for target, damage, kb_nx, kb_ny in hits:
@@ -356,10 +511,11 @@ class ForestScene:
             self.particles.blood_splatter(target.x, target.y, angle)
             self.damage_numbers.add(target.x, target.y - 20, damage)
 
-            is_finisher    = (sp.combo_step == 3 and not sp.is_dash_strike)
-            is_boss_target = target.type == "boss"
+            from weapons import is_finisher as _is_fin
+            hit_is_finisher = (_is_fin(sp._weapon(), sp.combo_step) and not sp.is_dash_strike)
+            is_boss_target  = target.type == "boss"
 
-            if is_finisher:
+            if hit_is_finisher:
                 self.freeze.start(5)
                 self.shake.start(9, 14)
                 self._camera_punch(1.07)
@@ -444,7 +600,7 @@ class ForestScene:
                                             is_arrow=False,
                                             knockback=KNOCKBACK * (2.0 if attack_type == "charge" else 1.0))
 
-        if self.boss and self.boss.state == "stamp_actief":
+        if self.boss and self.boss.state == "stamp_active":
             for ring in self.boss.shockwave_rings:
                 dist = math.hypot(sp.x - ring["x"], sp.y - ring["y"])
                 if abs(dist - ring["r"]) < 18 and sp.flinch_cooldown <= 0:
@@ -466,17 +622,19 @@ class ForestScene:
                 continue
             dist = math.hypot(sp.x - arrow.x, sp.y - arrow.y)
             if dist < 18:
-                facing_arrow  = math.degrees(math.atan2(arrow.dy, arrow.dx))
+                arrow_source  = math.degrees(math.atan2(-arrow.dy, -arrow.dx))  # direction toward archer
                 player_facing = math.degrees(math.atan2(sp.fy, sp.fx))
-                angle_to_arrow = abs(angle_diff(player_facing, facing_arrow))
+                angle_to_arrow = abs(angle_diff(player_facing, arrow_source))
                 if block and sp._has_shield() and angle_to_arrow < 70 and not sp.shield_broken:
-                    blocked = sp.handle_block(arrow.x, arrow.y, STAMINA_SHIELD_ARROW)
-                    if blocked:
+                    shield = sp._shield()
+                    arrow_stam = shield["stamina_cost_arrow"] if shield else STAMINA_SHIELD_ARROW
+                    result = sp.handle_block(arrow.x, arrow.y, arrow_stam, can_parry=False)
+                    if result:  # "block" or "parry" both deflect the arrow
                         sound.play("shield_block")
-                        self.particles.sword_sparks(sp.x, sp.y, facing_arrow + 180)
+                        self.particles.sword_sparks(sp.x, sp.y, arrow_source)
                         leak = arrow.damage * BLOCK_DAMAGE_THROUGH
-                        if leak > 0:
-                            sp.take_damage(leak, arrow.x, arrow.y)
+                        if leak > 0 and sp.take_damage(leak, arrow.x, arrow.y):
+                            self._player_got_hit(leak)
                     else:
                         if sp.take_damage(arrow.damage, arrow.x, arrow.y):
                             self._player_got_hit(arrow.damage)
@@ -496,8 +654,12 @@ class ForestScene:
             attack_angle  = math.degrees(math.atan2(from_y - sp.y, from_x - sp.x))
             angle_to_hit  = abs(angle_diff(player_facing, attack_angle))
             if angle_to_hit < 75:
-                blocked = sp.handle_block(from_x, from_y)
-                if blocked:
+                is_boss = hasattr(enemy, 'phase2')
+                result = sp.handle_block(from_x, from_y, can_parry=not is_boss)
+                if result == "parry":
+                    self._on_parry(enemy)
+                    return
+                elif result == "block":
                     sound.play("shield_block")
                     self.particles.sword_sparks(sp.x, sp.y,
                         math.degrees(math.atan2(sp.y - from_y, sp.x - from_x)))
@@ -520,6 +682,33 @@ class ForestScene:
         self.flash.start(90)
         self._camera_punch(1.06)
         sound.play("player_hit")
+
+    def _on_parry(self, enemy):
+        sp      = self.player
+        shield  = sp._shield()
+        stagger = shield["parry_stagger"] if shield else 60
+
+        # Stagger the enemy using its flinch system
+        # Use per-type knockback reduction so wolves don't fly across the screen
+        knx, kny = normalize(enemy.x - sp.x, enemy.y - sp.y)
+        kb = KNOCKBACK * (0.4 if getattr(enemy, 'type', '') == "wolf" else 1.0)
+        enemy.flinch_timer = stagger
+        enemy.flinch_dx    = knx * kb
+        enemy.flinch_dy    = kny * kb
+
+        # Interrupt wolf mid-attack so it doesn't resume a dash after flinch ends
+        if hasattr(enemy, 'wolf_state') and enemy.wolf_state in ("dash", "windup"):
+            enemy.wolf_state = "recovery"
+            enemy.wolf_timer = 40
+
+        # Visual and audio feedback
+        angle = math.degrees(math.atan2(sp.y - enemy.y, sp.x - enemy.x))
+        self.particles.sword_sparks(sp.x, sp.y, angle)
+        self.particles.sword_sparks(sp.x, sp.y, angle + 30)
+        self.shake.start(5, 10)
+        self.freeze.start(6)
+        self._camera_punch(1.05)
+        sound.play("shield_block")
 
     def _on_enemy_death(self, enemy):
         is_wolf = enemy.type == "wolf"
@@ -665,6 +854,8 @@ class ForestScene:
 
         self._draw_hud()
         self._draw_minimap()
+        if self.equip_menu_active:
+            self._draw_equip_menu()
         if self.item_choice_active:
             self._draw_item_choice()
         if self.room_intro_timer > 0:
@@ -744,7 +935,7 @@ class ForestScene:
         pygame.draw.circle(surface, kl, (sx, sy), 18)
         pygame.draw.circle(surface, (180, 220, 255), (sx, sy), 18, 2)
         if not self.fountain_used:
-            t = self.font_s.render("Fontein  [loop erheen]", True, (180, 220, 255))
+            t = self.font_s.render("Fountain  [walk here]", True, (180, 220, 255))
             surface.blit(t, (sx - t.get_width() // 2, sy - 36))
 
     def _draw_item_pedestal(self, surface, cam_x, cam_y):
@@ -757,7 +948,7 @@ class ForestScene:
         pygame.draw.rect(surface, (140, 120, 95), (sx - 18, sy - 10, 36, 20), 2)
         pygame.draw.circle(surface, (255, int(180 + puls * 60), 50),
                            (sx, sy - 18), int(10 + puls * 3))
-        t = self.font_s.render("Item  [loop erheen]", True, (255, 220, 120))
+        t = self.font_s.render("Item  [walk here]", True, (255, 220, 120))
         surface.blit(t, (sx - t.get_width() // 2, sy - 42))
 
     def _draw_floor_portal(self, surface, cam_x, cam_y):
@@ -774,7 +965,7 @@ class ForestScene:
         surface.blit(gs, (sx - r - 4, sy - r - 4))
         pygame.draw.circle(surface, (120, 220, 255), (sx, sy), 22)
         pygame.draw.circle(surface, (200, 240, 255), (sx, sy), 22, 3)
-        t = self.font_s.render("Volgende floor  [loop erheen]", True, (200, 240, 255))
+        t = self.font_s.render("Next floor  [walk here]", True, (200, 240, 255))
         surface.blit(t, (sx - t.get_width() // 2, sy - 42))
 
     def _draw_hud(self):
@@ -795,24 +986,27 @@ class ForestScene:
         pygame.draw.rect(self.screen, st_kl,           (10, 32, int(st_w * st_r), 12))
         pygame.draw.rect(self.screen, (120, 220, 160), (10, 32, st_w, 12), 1)
         if sp.shield_broken:
-            t = self.font_s.render("SCHILD GEBROKEN", True, (255, 120, 50))
+            t = self.font_s.render("SHIELD BROKEN", True, (255, 120, 50))
             self.screen.blit(t, (14, 34))
 
         items   = self.save.get("items", [])
         charges = self.save.get("item_charges", {})
-        active  = [k for k in items if ITEMS[k]["type"] == "actief"]
+        active  = [k for k in items if ITEMS[k]["type"] == "active"]
         if active:
             key  = active[0]
             item = ITEMS[key]
             c    = charges.get(key, item.get("charges", 1))
-            kl   = item["kleur"]
-            t    = self.font_s.render(f"[Q] {item['naam']}  x{c}", True, kl)
+            kl   = item["color"]
+            t    = self.font_s.render(f"[Q] {item['name']}  x{c}", True, kl)
             self.screen.blit(t, (10, 50))
 
         step = sp.combo_step
+        weapon = sp._weapon()
+        from weapons import combo_length as _cl
+        n_combo = _cl(weapon)
         if step > 0 or sp.finisher_windup > 0:
             dots = []
-            for i in range(1, 4):
+            for i in range(1, n_combo + 1):
                 if i < step:
                     dots.append("●")
                 elif i == step and sp.finisher_windup > 0:
@@ -826,7 +1020,7 @@ class ForestScene:
             self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, SCREEN_H - 38))
 
         if sp.has_active_effect("invis"):
-            t = self.font_s.render("● ONKWETSBAAR", True, (100, 200, 255))
+            t = self.font_s.render("● INVULNERABLE", True, (100, 200, 255))
             self.screen.blit(t, (SCREEN_W - t.get_width() - 10, 10))
 
         room          = self.floor_graph[self.current_pos]
@@ -845,15 +1039,15 @@ class ForestScene:
             pygame.draw.rect(self.screen, (50, 20, 20), (bx, by, bw, 20))
             pygame.draw.rect(self.screen, kl_b,         (bx, by, int(bw * ratio), 20))
             pygame.draw.rect(self.screen, (200, 160, 120), (bx, by, bw, 20), 2)
-            label = ("☠  De Boskrijger  [FASE 2]  ☠" if self.boss.phase2
-                     else "☠  De Boskrijger  ☠")
+            label = ("☠  The Forest Warrior  [PHASE 2]  ☠" if self.boss.phase2
+                     else "☠  The Forest Warrior  ☠")
             t = self.font_s.render(label, True, (220, 180, 120))
             self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, by - 18))
 
-        items_passive = [k for k in items if ITEMS[k]["type"] == "passief"]
+        items_passive = [k for k in items if ITEMS[k]["type"] == "passive"]
         for i, key in enumerate(items_passive):
             item = ITEMS[key]
-            t    = self.font_s.render(f"● {item['naam']}", True, item["kleur"])
+            t    = self.font_s.render(f"● {item['name']}", True, item["color"])
             self.screen.blit(t, (SCREEN_W - t.get_width() - 10, 30 + i * 18))
 
     def _draw_minimap(self):
@@ -895,7 +1089,7 @@ class ForestScene:
         overlay.fill((0, 0, 0, 170))
         self.screen.blit(overlay, (0, 0))
 
-        t = self.font_m.render("Kies een item  [1 / 2 / 3]", True, (220, 200, 120))
+        t = self.font_m.render("Choose an item  [1 / 2 / 3]", True, (220, 200, 120))
         self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, 80))
 
         card_w, card_h = 200, 220
@@ -909,22 +1103,22 @@ class ForestScene:
 
             pygame.draw.rect(self.screen, (40, 35, 30),
                              (cx, cy, card_w, card_h), border_radius=8)
-            pygame.draw.rect(self.screen, item["kleur"],
+            pygame.draw.rect(self.screen, item["color"],
                              (cx, cy, card_w, card_h), 2, border_radius=8)
 
             rarity_kl = RARITY_COLOR.get(item["rarity"], (160, 160, 160))
             rt = self.font_s.render(RARITY_NAME.get(item["rarity"], ""), True, rarity_kl)
             self.screen.blit(rt, (cx + card_w // 2 - rt.get_width() // 2, cy + 10))
 
-            pygame.draw.circle(self.screen, item["kleur"],
+            pygame.draw.circle(self.screen, item["color"],
                                (cx + card_w // 2, cy + 70), 28)
-            pygame.draw.circle(self.screen, item["kleur_dim"],
+            pygame.draw.circle(self.screen, item["color_dim"],
                                (cx + card_w // 2, cy + 70), 28, 3)
 
-            nt = self.font_m.render(item["naam"], True, (240, 230, 210))
+            nt = self.font_m.render(item["name"], True, (240, 230, 210))
             self.screen.blit(nt, (cx + card_w // 2 - nt.get_width() // 2, cy + 108))
 
-            for j, line in enumerate(item["beschrijving"].split("\n")):
+            for j, line in enumerate(item["description"].split("\n")):
                 dt = self.font_s.render(line, True, (180, 170, 150))
                 self.screen.blit(dt, (cx + card_w // 2 - dt.get_width() // 2,
                                       cy + 138 + j * 18))
@@ -937,9 +1131,9 @@ class ForestScene:
         alpha = min(255, self.room_intro_timer * 6)
         room  = self.floor_graph[self.current_pos]
         if room["type"] == "boss":
-            text = "⚔  EINDBAAS  ⚔"; kl = (255, 80, 40)
+            text = "⚔  BOSS  ⚔"; kl = (255, 80, 40)
         elif room["type"] == "rest":
-            text = "Rustplaats";      kl = (80, 200, 140)
+            text = "Rest Room";      kl = (80, 200, 140)
         else:
             text = self.level_mgr.description(); kl = (200, 200, 160)
         t = self.font_g.render(text, True, kl)
@@ -950,8 +1144,8 @@ class ForestScene:
         overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 160))
         self.screen.blit(overlay, (0, 0))
-        t1 = self.font_g.render("Je bent gevallen...", True, (220, 60, 60))
-        t2 = self.font_m.render("Druk op R om opnieuw te beginnen",
+        t1 = self.font_g.render("You have fallen...", True, (220, 60, 60))
+        t2 = self.font_m.render("Press R to restart",
                                 True, (180, 140, 140))
         self.screen.blit(t1, (SCREEN_W // 2 - t1.get_width() // 2, SCREEN_H // 2 - 60))
         self.screen.blit(t2, (SCREEN_W // 2 - t2.get_width() // 2, SCREEN_H // 2 + 10))

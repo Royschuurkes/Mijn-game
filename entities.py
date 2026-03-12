@@ -2,8 +2,7 @@
 import math, random
 import pygame
 from constants import *
-
-SWORD_REACH = 88  # px — tweak here to adjust melee range
+from weapons import get_weapon, get_shield, combo_step_data, combo_length, is_finisher
 
 
 def normalize(x, y):
@@ -87,9 +86,10 @@ class Player:
         self.lock_fy       = 1.0
         self.facing_locked = False
 
-        # Shield / guard break
+        # Shield / guard break / parry
         self.guard_break_timer = 0
         self.shield_broken     = False
+        self.parry_timer       = 0
 
         # Squash & stretch
         self.scale_x = 1.0
@@ -108,13 +108,15 @@ class Player:
     @property
     def can_attack(self): return self.flinch_timer == 0
 
-    # ── Save helpers ──────────────────────────────────────────────────────────
+    # ── Equipment helpers ────────────────────────────────────────────────────
     def _weapon(self):
-        from weapons import get_weapon
-        return get_weapon(self.save.get("weapon", "shield"))
+        return get_weapon(self.save.get("main_hand", "sword"))
+
+    def _shield(self):
+        return get_shield(self.save.get("off_hand"))
 
     def _has_shield(self):
-        return self._weapon().get("type") == "shield"
+        return self._shield() is not None
 
     def has_item(self, key):
         return key in self.save.get("items", [])
@@ -124,8 +126,12 @@ class Player:
 
     # ── Attack input ──────────────────────────────────────────────────────────
     def _try_attack(self, block=False):
+        weapon    = self._weapon()
+        stam_cost = weapon["stamina_cost"]
+        n_combo   = combo_length(weapon)
+
         if block: return
-        SWING_CD = 18
+        if self.stamina < stam_cost: return
 
         # ── Charge attack: tijdens dodge of sprint ────────────────────────────
         can_charge = (
@@ -135,6 +141,8 @@ class Player:
             and self.finisher_windup == 0
         )
         if can_charge:
+            self.stamina       -= stam_cost
+            self.stamina_delay  = STAMINA_DELAY
             self.charge_timer        = CHARGE_FRAMES
             self.charge_dx           = self.fx * CHARGE_SPEED
             self.charge_dy           = self.fy * CHARGE_SPEED
@@ -157,39 +165,48 @@ class Player:
         # ── Normale combo ─────────────────────────────────────────────────────
         if self.charge_timer > 0: return   # nog aan het chargen
 
+        next_step = (self.combo_step % n_combo) + 1
+        cur_data  = combo_step_data(weapon, max(1, self.combo_step)) if self.combo_step > 0 else None
+        next_data = combo_step_data(weapon, next_step)
+        cur_cd    = cur_data["cooldown"] if cur_data else 0
+
         can = (self.combo_timer == 0 and self.finisher_windup == 0
                and self.swing_cooldown == 0 and self.post_combo_cooldown == 0
                and self.can_attack and self.dodge_timer == 0)
-        if (self.combo_window > 0 and self.combo_step in (1, 2)
+        if (self.combo_window > 0 and self.combo_step > 0
+                and not is_finisher(weapon, self.combo_step)
                 and self.combo_timer == 0 and self.swing_cooldown == 0
                 and self.post_combo_cooldown == 0):
             can = True
 
         if not can:
-            if self.combo_timer > 0 and self.combo_step in (1, 2):
-                self.swing_cooldown = min(self.swing_cooldown + 8, SWING_CD + 8)
+            if (self.combo_timer > 0 and self.combo_step > 0
+                    and not is_finisher(weapon, self.combo_step)):
+                self.swing_cooldown = min(self.swing_cooldown + 8, cur_cd + 8)
             return
 
-        if (self.combo_step % 3) + 1 == 3:
-            self.combo_step      = 2
+        if is_finisher(weapon, next_step):
+            # About to do finisher — enter windup
+            self.combo_step      = next_step - 1  # stay on pre-finisher step
             self.combo_timer     = 0
             self.combo_window    = 0
-            self.finisher_windup = 16
+            self.finisher_windup = next_data.get("windup", 16)
             self.is_dash_strike  = False
             self.facing_locked   = True
             self.lock_fx = self.fx; self.lock_fy = self.fy
             import sound as _snd; _snd.play("finisher_charge")
         else:
-            self.combo_step        = (self.combo_step % 3) + 1
-            self.combo_timer       = 10
-            self.combo_window      = 28
+            self.combo_step        = next_step
+            self.combo_timer       = next_data["swing_frames"]
+            self.combo_window      = next_data["window"]
             self.combo_reset_timer = 0
             self.is_dash_strike    = False
             import sound as _snd
             _snd.play("sword_swing_1" if self.combo_step == 1 else "sword_swing_2")
 
+        self.stamina          -= stam_cost
         self.stamina_delay     = STAMINA_DELAY
-        self.swing_cooldown    = SWING_CD
+        self.swing_cooldown    = next_data["cooldown"]
         self.hit_ids           = set()
         self._combo_idle_timer = 0
 
@@ -200,10 +217,12 @@ class Player:
     # ── Event handling ────────────────────────────────────────────────────────
     def handle_events(self, events, block=False):
         COMBO_TIMEOUT = 22
+        weapon = self._weapon()
+        cur_swing = combo_step_data(weapon, max(1, self.combo_step))["swing_frames"] if self.combo_step > 0 else 10
 
-        for e in events:                                         # ← loop start
+        for e in events:
             if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE:
-                combo_elapsed = 10 - self.combo_timer
+                combo_elapsed = cur_swing - self.combo_timer
                 dodge_ok = (self.dodge_timer <= 0 and self.dodge_cooldown <= 0
                             and self.stamina >= STAMINA_DODGE
                             and self.dodge_timer == 0)
@@ -217,6 +236,7 @@ class Player:
                     self.dodge_dy            = by * DODGE_SPEED
                     self.dodge_timer         = DODGE_FRAMES
                     self.dodge_cooldown      = DODGE_CD
+                    self.stamina            -= STAMINA_DODGE
                     self.stamina_delay       = STAMINA_DELAY
                     self.scale_x = 1.4; self.scale_y = 0.7
                     self.dash_strike_window  = DODGE_FRAMES + 8
@@ -232,24 +252,13 @@ class Player:
                     self.swing_cooldown      = 0
                     self.post_combo_cooldown = 0
 
-            if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:   # ← zelfde inspringing als K_SPACE
+            if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
                 self._try_attack(block)
 
-        # Hold LMB: auto-swing when button held and cooldown ready
-        if pygame.mouse.get_pressed()[0] and not block:
-            if (self.combo_timer == 0 and self.finisher_windup == 0
-                    and self.swing_cooldown == 0):
-                self._try_attack(block)
-
-        # Combo timeout
-        if (self.combo_step > 0 and self.combo_timer == 0
-                and self.finisher_windup == 0 and self.combo_window == 0):
-            self._combo_idle_timer += 1
-            if self._combo_idle_timer > COMBO_TIMEOUT:
-                self.combo_step        = 0
-                self._combo_idle_timer = 0
-        else:
-            self._combo_idle_timer = 0
+            if e.type == pygame.MOUSEBUTTONDOWN and e.button == 3:
+                shield = self._shield()
+                if shield and not self.shield_broken:
+                    self.parry_timer = shield["parry_window"]
 
         # Hold LMB: auto-swing when button held and cooldown ready
         if pygame.mouse.get_pressed()[0] and not block:
@@ -291,10 +300,17 @@ class Player:
 
         sprint = (keys[pygame.K_SPACE] and self.dodge_timer == 0
                   and self.charge_timer == 0
-                  and math.hypot(mx, my) > 0.1)
+                  and math.hypot(mx, my) > 0.1
+                  and self.stamina > 0)
         self._sprint_active = sprint
+        if sprint:
+            self.stamina = max(0, self.stamina - SPRINT_STAMINA)
 
-        combo_elapsed = 10 - self.combo_timer
+        weapon     = self._weapon()
+        n_combo    = combo_length(weapon)
+        cur_data   = combo_step_data(weapon, max(1, self.combo_step)) if self.combo_step > 0 else None
+        cur_swing  = cur_data["swing_frames"] if cur_data else 10
+        combo_elapsed = cur_swing - self.combo_timer
 
         # Speed
         if self.dodge_timer > 0:
@@ -302,9 +318,9 @@ class Player:
         elif self.finisher_windup > 0:
             speed = 0.0
         elif self.combo_timer > 0:
-            if combo_elapsed < 2:      speed = 0.0
-            elif self.combo_step == 3: speed = 0.0
-            else:                      speed = PLAYER_SPEED * 0.25
+            if combo_elapsed < 2:                           speed = 0.0
+            elif is_finisher(weapon, self.combo_step):      speed = 0.0
+            else:                                           speed = PLAYER_SPEED * 0.25
         elif self.combo_reset_timer > 0:
             speed = PLAYER_SPEED * 0.5
         elif block:   speed = PLAYER_SPEED * 0.5
@@ -319,7 +335,7 @@ class Player:
             self.flinch_dx *= 0.8; self.flinch_dy *= 0.8
         elif self.dodge_timer > 0:
             dx, dy = self.dodge_dx, self.dodge_dy
-        elif self.combo_timer > 0 and self.combo_step == 3:
+        elif self.combo_timer > 0 and is_finisher(weapon, self.combo_step):
             lunge  = PLAYER_SPEED * 1.8 * max(0, (6 - combo_elapsed) / 6)
             dx, dy = self.fx * lunge, self.fy * lunge
         else:
@@ -355,16 +371,17 @@ class Player:
 
             if self.charge_timer == 0:
                 # Land — auto-start combo stap 1
+                step1 = combo_step_data(weapon, 1)
                 self.is_charging         = False
                 self.combo_step          = 1
-                self.combo_timer         = 10
-                self.combo_window        = 28
+                self.combo_timer         = step1["swing_frames"]
+                self.combo_window        = step1["window"]
                 self.dash_strike_window  = 0
                 self.is_dash_strike      = False
                 self.hit_ids             = set()
                 self.lock_fx = self.fx; self.lock_fy = self.fy
                 self.facing_locked       = True
-                self.swing_cooldown      = 18
+                self.swing_cooldown      = step1["cooldown"]
                 self.scale_x = 1.5; self.scale_y = 0.6
                 import sound as _snd; _snd.play("sword_swing_1")
 
@@ -389,14 +406,16 @@ class Player:
             if self.guard_break_timer == 0:
                 self.shield_broken = False
 
+        # Parry window countdown
+        if self.parry_timer > 0:
+            self.parry_timer -= 1
+
         # Stamina regen
-        if block:
-            pass  # geen regen tijdens blokkeren
-        elif self.stamina < self.stamina_max:
-            self.stamina = min(self.stamina_max,
-                               self.stamina + (self.stamina_max * STAMINA_REGEN_PCT / FPS))
         if self.stamina_delay > 0:
             self.stamina_delay -= 1
+        elif not block and not sprint and self.stamina < self.stamina_max:
+            self.stamina = min(self.stamina_max,
+                               self.stamina + (self.stamina_max * STAMINA_REGEN_PCT / FPS))
 
         # Active effects countdown
         for eff in self.save.get("active_effects", {}):
@@ -407,9 +426,11 @@ class Player:
         if self.finisher_windup > 0:
             self.finisher_windup -= 1
             if self.finisher_windup == 0:
-                self.combo_step     = 3
-                self.combo_timer    = 10
-                self.combo_window   = 28
+                fin_step = n_combo  # finisher is always last step
+                fin_data = combo_step_data(weapon, fin_step)
+                self.combo_step     = fin_step
+                self.combo_timer    = fin_data["swing_frames"]
+                self.combo_window   = fin_data["window"]
                 self.is_dash_strike = False
                 self.hit_ids        = set()
                 self.scale_x = 0.6; self.scale_y = 1.5
@@ -434,12 +455,14 @@ class Player:
                 self.combo_step = 0
 
         # Post-finisher recovery
-        if (self.combo_timer == 0 and self.combo_step == 3
+        if (self.combo_timer == 0 and is_finisher(weapon, self.combo_step)
                 and not self._post_combo_triggered):
             self._post_combo_triggered = True
-            self.post_combo_cooldown   = 22
-            self.swing_cooldown        = 22
-        elif self.combo_timer > 0 or self.combo_step != 3:
+            fin_data = combo_step_data(weapon, self.combo_step)
+            recovery = fin_data["cooldown"]
+            self.post_combo_cooldown   = recovery
+            self.swing_cooldown        = recovery
+        elif self.combo_timer > 0 or not is_finisher(weapon, self.combo_step):
             self._post_combo_triggered = False
 
         # Unlock facing when done
@@ -449,14 +472,17 @@ class Player:
         # Buffered input
         if self.combo_buffered and self.combo_timer == 0:
             self.combo_buffered = False
-            if (self.stamina >= STAMINA_SWORD and self.can_attack
+            stam_cost = weapon["stamina_cost"]
+            if (self.stamina >= stam_cost and self.can_attack
                     and self.dodge_timer == 0):
-                self.combo_step        = (self.combo_step % 3) + 1
-                self.combo_timer       = 10
-                self.combo_window      = 28
+                next_s    = (self.combo_step % n_combo) + 1
+                next_d    = combo_step_data(weapon, next_s)
+                self.combo_step        = next_s
+                self.combo_timer       = next_d["swing_frames"]
+                self.combo_window      = next_d["window"]
                 self.combo_reset_timer = 0
                 self.is_dash_strike    = False
-                self.stamina          -= STAMINA_SWORD
+                self.stamina          -= stam_cost
                 self.stamina_delay     = STAMINA_DELAY
                 self.hit_ids           = set()
                 self.lock_fx           = self.fx
@@ -476,11 +502,21 @@ class Player:
         self.hit_flash_timer = 8
         return True
 
-    def handle_block(self, from_x, from_y, stamina_cost=None):
+    def handle_block(self, from_x, from_y, stamina_cost=None, can_parry=True):
+        shield = self._shield()
         if stamina_cost is None:
-            stamina_cost = STAMINA_SHIELD
+            stamina_cost = shield["stamina_cost"] if shield else STAMINA_SHIELD
         if self.shield_broken:
             return False
+
+        # Parry: block pressed within the parry window → no stamina cost, stagger enemy
+        if can_parry and self.parry_timer > 0:
+            self.parry_timer = 0
+            self.stamina_delay = STAMINA_DELAY
+            self.scale_x = 1.3; self.scale_y = 0.7
+            return "parry"
+
+        # Normal block
         if self.stamina >= stamina_cost:
             self.stamina      -= stamina_cost
             self.stamina_delay = STAMINA_DELAY
@@ -489,7 +525,7 @@ class Player:
             self.flinch_dy    = kny * 3.5
             self.flinch_timer = 6
             self.scale_x = 0.85; self.scale_y = 1.2
-            return True
+            return "block"
         else:
             self.stamina           = 0
             self.guard_break_timer = GUARD_BREAK_TIMER
@@ -507,33 +543,37 @@ class Player:
         hits = []
         if self.combo_timer <= 0: return hits
 
-        fh   = math.degrees(math.atan2(self.fy, self.fx))
-        step = self.combo_step
-        prog = ease_in_out(1.0 - self.combo_timer / 10)
+        weapon = self._weapon()
+        step   = self.combo_step
+        sdata  = combo_step_data(weapon, step)
+        fh     = math.degrees(math.atan2(self.fy, self.fx))
+        prog   = ease_in_out(1.0 - self.combo_timer / sdata["swing_frames"])
 
-        base_damage = PLAYER_DAMAGE + get_bonus_damage(self.save)
+        base_damage = weapon["damage"] + get_bonus_damage(self.save)
         if self.has_item("fire_damage") or self.has_active_effect("fire_potion"):
             base_damage *= 1.25
         if self.has_item("berserker"):
             hp_ratio = max(0.0, 1.0 - self.hp / self.hp_max)
             base_damage *= (1.0 + hp_ratio * 0.8)
 
-        if step == 1:
-            reach     = SWORD_REACH
-            swing_h   = fh - 60 + prog * 120
-            tolerance = 42
-            damage    = base_damage
-        elif step == 2:
-            reach     = SWORD_REACH
-            swing_h   = fh + 60 - prog * 120
-            tolerance = 42
-            damage    = base_damage
-        else:
-            reach     = SWORD_REACH * (1.5 if self.is_dash_strike else 1.3)
-            swing_h   = fh
-            tolerance = 28
-            finisher_mult = 2.5 * (1.5 if self.has_item("combo_master") else 1.0)
-            damage = base_damage * (1.8 if self.is_dash_strike else finisher_mult)
+        reach     = weapon["reach"] * sdata.get("reach_mult", 1.0)
+        if self.is_dash_strike and is_finisher(weapon, step):
+            reach *= 1.15  # extra reach on dash-strike finisher
+        tolerance = sdata["tolerance"]
+        arc       = sdata["arc"]
+        anim      = sdata["anim"]
+
+        # Calculate swing heading based on animation type
+        swing_h = self._calc_swing_heading(fh, anim, arc, prog)
+
+        # Damage
+        damage = base_damage * sdata["damage_mult"]
+        if is_finisher(weapon, step) and self.has_item("combo_master"):
+            damage *= 1.5
+        if self.is_dash_strike and is_finisher(weapon, step):
+            damage = base_damage * 1.8  # dash-strike finisher override
+
+        kb = weapon["knockback"] * sdata.get("knockback_mult", 1.0)
 
         for v in targets:
             if v.id in self.hit_ids: continue
@@ -545,13 +585,27 @@ class Player:
                     kb_rad = math.radians(swing_h)
                     hits.append((v, damage, math.cos(kb_rad), math.sin(kb_rad)))
         return hits
+
+    def _calc_swing_heading(self, fh, anim, arc, prog):
+        """Calculate the current swing angle based on animation type."""
+        half = arc / 2
+        if anim == "sweep_right":
+            return fh - half + prog * arc
+        elif anim == "sweep_left":
+            return fh + half - prog * arc
+        elif anim == "wide_sweep":
+            return fh - half + prog * arc
+        elif anim in ("thrust", "stab", "overhead"):
+            return fh
+        return fh
     
     def charge_hits(self, targets):
         """Hit detection during the charge dash itself."""
         if self.charge_timer <= 0:
             return []
         hits = []
-        base_damage = (PLAYER_DAMAGE + get_bonus_damage(self.save)) * 1.4
+        weapon = self._weapon()
+        base_damage = (weapon["damage"] + get_bonus_damage(self.save)) * weapon["charge_damage_mult"]
         reach = 52
         for v in targets:
             if v.id in self.hit_ids:
@@ -572,6 +626,9 @@ class Player:
         rw   = max(6, int(r * self.scale_x))
         rh_s = max(6, int(r * self.scale_y))
 
+        weapon = self._weapon()
+        shield = self._shield()
+
         knip       = self.flinch_timer > 0 and (self.flinch_timer // 4) % 2 == 0
         guard_knip = self.guard_break_timer > 0 and (self.guard_break_timer // 3) % 2 == 0
 
@@ -591,8 +648,9 @@ class Player:
         # Finisher charge glow
         fw = self.finisher_windup
         if fw > 0:
-            WINDUP     = 16
-            charge     = max(0.0, 1.0 - fw / WINDUP)
+            fin_data   = combo_step_data(weapon, combo_length(weapon))
+            windup_max = fin_data.get("windup", 16)
+            charge     = max(0.0, 1.0 - fw / windup_max)
             glow_r     = max(4, int(18 + charge * 14))
             glow_alpha = int(max(0, min(255, charge * 220)))
             puls       = abs(math.sin(fw * 0.6))
@@ -602,34 +660,45 @@ class Player:
                                glow_r, max(2, int(charge * 6)))
             surface.blit(gs, (sx - glow_r - 2, sy - glow_r - 2))
 
-        fh = math.degrees(math.atan2(self.fy, self.fx))
+        fh  = math.degrees(math.atan2(self.fy, self.fx))
+        w_color     = weapon["color"]
+        w_color_tip = weapon["color_tip"]
 
-        if self.combo_timer > 0:
-            prog = ease_in_out(1.0 - self.combo_timer / 10)
-            step = self.combo_step
-            if step == 1:
-                zh_start = fh - 60; zh_end = fh + 60
-                zh       = zh_start + prog * 120
-                reach_t  = SWORD_REACH
-            elif step == 2:
-                zh_start = fh + 60; zh_end = fh - 60
-                zh       = zh_start - prog * 120
-                reach_t  = SWORD_REACH
-            else:
-                zh_start = zh_end = zh = fh
-                reach_t  = SWORD_REACH * (1.5 if self.is_dash_strike else 1.3)
+        # Charge visual — weapon thrust forward
+        if self.charge_timer > 0:
+            reach_c = 55 + (CHARGE_FRAMES - self.charge_timer) * 3
+            ex = sx + int(self.fx * reach_c)
+            ey = sy + int(self.fy * reach_c)
+            pygame.draw.line(surface, (255, 240, 120), (sx, sy), (ex, ey), 6)
+            pygame.draw.circle(surface, (255, 255, 180), (ex, ey), 8)
 
-            rad = math.radians(zh)
+        elif self.combo_timer > 0:
+            step  = self.combo_step
+            sdata = combo_step_data(weapon, step)
+            prog  = ease_in_out(1.0 - self.combo_timer / sdata["swing_frames"])
+            arc   = sdata["arc"]
+            anim  = sdata["anim"]
+            reach_t = weapon["reach"] * sdata.get("reach_mult", 1.0)
+            if self.is_dash_strike and is_finisher(weapon, step):
+                reach_t *= 1.15
+
+            half    = arc / 2
+            zh      = self._calc_swing_heading(fh, anim, arc, prog)
+            rad     = math.radians(zh)
+
+            # Weapon line
             ex  = sx + math.cos(rad) * reach_t
             ey  = sy + math.sin(rad) * reach_t
-            lkl = (255, 220, 50) if self.is_dash_strike else C_SWORD
+            lkl = (255, 220, 50) if self.is_dash_strike else w_color
             pygame.draw.line(surface, lkl, (sx, sy), (int(ex), int(ey)),
                              6 if self.is_dash_strike else 5)
-            tkl = (255, 255, 100) if self.is_dash_strike else (240, 240, 255)
+            tkl = (255, 255, 100) if self.is_dash_strike else w_color_tip
             pygame.draw.circle(surface, tkl, (int(ex), int(ey)),
                                7 if self.is_dash_strike else 5)
 
-            if step != 3 and prog > 0.05:
+            # Trail effects based on animation type
+            if anim in ("sweep_right", "sweep_left", "wide_sweep") and prog > 0.05:
+                zh_start = self._calc_swing_heading(fh, anim, arc, 0.0)
                 n_pts  = 14
                 swoosh = []
                 for i in range(n_pts + 1):
@@ -647,7 +716,9 @@ class Player:
                     pygame.draw.circle(seg, (*kl_sw, alpha), (width + 2, width + 2), width)
                     surface.blit(seg, (int(swoosh[i][0]) - width - 2,
                                        int(swoosh[i][1]) - width - 2))
-            elif step == 3:
+
+            elif anim in ("thrust", "stab"):
+                # Forward thrust trail
                 flits_kl = (255, 220, 50) if self.is_dash_strike else (255, 255, 200)
                 for dist_l in range(0, int(reach_t), 7):
                     alpha = int(200 * (1 - dist_l / reach_t) * prog)
@@ -658,39 +729,33 @@ class Player:
                     seg   = pygame.Surface((r_l * 2 + 2, r_l * 2 + 2), pygame.SRCALPHA)
                     pygame.draw.circle(seg, (*flits_kl, alpha), (r_l + 1, r_l + 1), r_l)
                     surface.blit(seg, (int(px2) - r_l - 1, int(py2) - r_l - 1))
-         # Charge visual — sword thrust forward
-        if self.charge_timer > 0:
-            reach_c = 55 + (CHARGE_FRAMES - self.charge_timer) * 3
-            ex = sx + int(self.fx * reach_c)
-            ey = sy + int(self.fy * reach_c)
-            pygame.draw.line(surface, (255, 240, 120), (sx, sy), (ex, ey), 6)
-            pygame.draw.circle(surface, (255, 255, 180), (ex, ey), 8)
-        elif self.combo_timer > 0:
-            prog = ease_in_out(1.0 - self.combo_timer / 10)
-            step = self.combo_step
-            if step == 1:
-                zh_start = fh - 60; zh_end = fh + 60
-                zh       = zh_start + prog * 120
-                reach_t  = SWORD_REACH
-            elif step == 2:
-                zh_start = fh + 60; zh_end = fh - 60
-                zh       = zh_start - prog * 120
-                reach_t  = SWORD_REACH
-            else:
-                zh_start = zh_end = zh = fh
-                reach_t  = SWORD_REACH * (1.5 if self.is_dash_strike else 1.3)
-            # ... rest van de combo tekencode die al in jouw bestand staat
-        else:
-            rh2 = math.radians(fh + 40)
-            pygame.draw.line(surface, C_SWORD, (sx, sy),
-                (int(sx + math.cos(rh2) * 22), int(sy + math.sin(rh2) * 22)), 3)
 
-        if self._has_shield() and block:
+            elif anim == "overhead":
+                # Overhead smash — impact ring effect
+                impact_r = int(reach_t * 0.6 * prog)
+                if impact_r > 4:
+                    impact_alpha = int(180 * (1 - prog * 0.5))
+                    gs = pygame.Surface((impact_r * 2 + 4, impact_r * 2 + 4), pygame.SRCALPHA)
+                    pygame.draw.circle(gs, (255, 200, 100, impact_alpha),
+                                       (impact_r + 2, impact_r + 2), impact_r, 3)
+                    surface.blit(gs, (int(ex) - impact_r - 2, int(ey) - impact_r - 2))
+
+        else:
+            # Idle weapon position
+            rh2 = math.radians(fh + 40)
+            idle_reach = min(22, weapon["reach"] * 0.25)
+            pygame.draw.line(surface, w_color, (sx, sy),
+                (int(sx + math.cos(rh2) * idle_reach), int(sy + math.sin(rh2) * idle_reach)), 3)
+
+        # Shield
+        if shield and block:
             sh  = math.radians(fh - 35)
             bsx = int(sx + math.cos(sh) * 22)
             bsy = int(sy + math.sin(sh) * 22)
-            pygame.draw.circle(surface, C_SHIELD, (bsx, bsy), 13)
-            pygame.draw.circle(surface, (230, 185, 90), (bsx, bsy), 13, 2)
+            s_color = shield["color"]
+            s_rim   = shield["color_rim"]
+            pygame.draw.circle(surface, s_color, (bsx, bsy), 13)
+            pygame.draw.circle(surface, s_rim, (bsx, bsy), 13, 2)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -879,12 +944,12 @@ class Enemy:
                               self.y - self.wolf_dash_dir_y * 40,
                               WOLF_DAMAGE)
                 if self.wolf_timer == 0:
-                    self.wolf_state      = "herstel"
+                    self.wolf_state      = "recovery"
                     self.wolf_timer      = WOLF_REST_T
                     self.attack_cooldown = WOLF_REST_T
                     self.scale_x = 1.4; self.scale_y = 0.7
 
-            elif self.wolf_state == "herstel":
+            elif self.wolf_state == "recovery":
                 self.wolf_glow = 0.0
                 if dist < WOLF_DISTANCE:
                     self._move(-self.fx * self.speed, -self.fy * self.speed, is_blocked)
@@ -1237,7 +1302,7 @@ class Boss:
             self.scale_x = lerp(self.scale_x, 0.7,  0.12)
             self.scale_y = lerp(self.scale_y, 1.45, 0.12)
             if self.state_timer == 0:
-                self.state       = "melee_aanval"
+                self.state       = "melee_attack"
                 self.state_timer = self.MELEE_FRAMES
                 self.anim_timer  = self.MELEE_FRAMES
                 self.scale_x = 1.6; self.scale_y = 0.5
@@ -1245,9 +1310,9 @@ class Boss:
                     attack = ("melee", self.x, self.y,
                               self.MELEE_DAMAGE * self.damage_mult)
 
-        elif self.state == "melee_aanval":
+        elif self.state == "melee_attack":
             if self.state_timer == 0:
-                self.state       = "herstel"
+                self.state       = "recovery"
                 self.state_timer = 35
                 self.attack_cooldown = int(self.MELEE_ACD * (0.75 if self.phase2 else 1.0))
 
@@ -1276,7 +1341,7 @@ class Boss:
                 attack = ("charge", self.x, self.y,
                           self.CHARGE_DAMAGE * self.damage_mult)
             if self.state_timer == 0:
-                self.state       = "herstel"
+                self.state       = "recovery"
                 self.state_timer = 50
                 self.attack_cooldown = int(self.CHARGE_ACD * (0.75 if self.phase2 else 1.0))
 
@@ -1284,19 +1349,19 @@ class Boss:
             self.scale_x = lerp(self.scale_x, 0.75, 0.1)
             self.scale_y = lerp(self.scale_y, 1.5,  0.1)
             if self.state_timer == 0:
-                self.state       = "stamp_actief"
+                self.state       = "stamp_active"
                 self.state_timer = 10
                 self.scale_x = 2.0; self.scale_y = 0.3
                 self.shockwave_rings = [{"x": self.x, "y": self.y, "r": 0,
                                          "max_r": self.STAMP_MAX_R, "alpha": 220}]
 
-        elif self.state == "stamp_actief":
+        elif self.state == "stamp_active":
             if self.state_timer == 0:
-                self.state       = "herstel"
+                self.state       = "recovery"
                 self.state_timer = 45
                 self.attack_cooldown = self.STAMP_ACD
 
-        elif self.state == "herstel":
+        elif self.state == "recovery":
             if dist < 120:
                 self._move(-self.fx * spd * 0.6, -self.fy * spd * 0.6, is_blocked)
             if self.state_timer == 0:
@@ -1402,7 +1467,7 @@ class Boss:
             (int(sx + self.fx * int(r * 0.55)), int(sy + self.fy * int(r * 0.55))), 7)
 
         fh = math.degrees(math.atan2(self.fy, self.fx))
-        if self.state in ("melee_windup", "melee_aanval") and self.anim_timer > 0:
+        if self.state in ("melee_windup", "melee_attack") and self.anim_timer > 0:
             t_raw = 1.0 - self.anim_timer / self.MELEE_FRAMES
             prog  = ease_in_out(t_raw)
             zh    = fh - 70 + prog * 140

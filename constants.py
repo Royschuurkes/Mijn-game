@@ -18,13 +18,13 @@ DODGE_CD       = 38
 CHARGE_SPEED  = 14.0
 CHARGE_FRAMES = 13
 SPRINT_SPEED   = 1.7
-SPRINT_STAMINA = 0.25
+SPRINT_STAMINA = 0.5
 
 # ── Stamina costs ─────────────────────────────────────────────────────────────
-STAMINA_DODGE        = 0
-STAMINA_SWORD        = 0
-STAMINA_REGEN_PCT    = 0.80
-STAMINA_DELAY        = 90
+STAMINA_DODGE        = 14
+STAMINA_SWORD        = 14
+STAMINA_REGEN_PCT    = 0.8
+STAMINA_DELAY        = 70
 STAMINA_SHIELD       = 12.0
 STAMINA_SHIELD_ARROW = 8.0
 BLOCK_DAMAGE_THROUGH = 0.10
@@ -65,10 +65,13 @@ TREE_PALETTE = [
 
 # ── Save data ─────────────────────────────────────────────────────────────────
 DEFAULT_SAVE = {
-    "weapon":         "shield",
-    "highest_floor":  0,
-    "items":          [],
-    "item_charges":   {},
+    "main_hand":          "sword",
+    "off_hand":           "wooden_shield",
+    "inventory_weapons":  ["sword", "dagger", "axe"],
+    "inventory_shields":  ["wooden_shield"],
+    "highest_floor":      0,
+    "items":              [],
+    "item_charges":       {},
     "active_effects": {
         "invis":       0,
         "fire_potion": 0,
@@ -80,6 +83,13 @@ def load_save():
         try:
             with open(SAVE_FILE) as f:
                 d = json.load(f)
+            # Migrate old save format
+            if "weapon" in d and "main_hand" not in d:
+                d["main_hand"] = "sword"
+                d["off_hand"]  = "wooden_shield"
+                d["inventory_weapons"] = ["sword"]
+                d["inventory_shields"] = ["wooden_shield"]
+                del d["weapon"]
             for k, v in DEFAULT_SAVE.items():
                 if k not in d:
                     d[k] = copy.deepcopy(v)
