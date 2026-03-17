@@ -388,8 +388,8 @@ CORVIN — The Scavenger Smith (Level 2)
   world. If Edric is alive, Corvin arrives at the hub as a traveling merchant.
   If Edric is dead, Corvin takes over the forge — at higher prices and with
   less skill. He does not ask where things come from. He is not malicious, only
-  opportunistic. His presence in the forge role signals a subtle darkening of
-  the hub's character.
+  opportunistic. If Edric is dead, Corvin's presence in the forge role signals a subtle darkening of
+  the hub and fortress. If Edric is alive, perhaps Corvin will serve a different role later on which has not been determined yet.
 
 
 ============================================================
