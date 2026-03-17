@@ -27,7 +27,7 @@ STAMINA_REGEN_PCT    = 0.8
 STAMINA_DELAY        = 70
 STAMINA_SHIELD       = 12.0
 STAMINA_SHIELD_ARROW = 8.0
-BLOCK_DAMAGE_THROUGH = 0.10
+BLOCK_DAMAGE_THROUGH = 0.50
 GUARD_BREAK_TIMER    = 50
 
 # ── Combat ────────────────────────────────────────────────────────────────────
@@ -66,9 +66,9 @@ TREE_PALETTE = [
 # ── Save data ─────────────────────────────────────────────────────────────────
 DEFAULT_SAVE = {
     "main_hand":          "sword",
-    "off_hand":           "wooden_shield",
-    "inventory_weapons":  ["sword", "dagger", "axe"],
-    "inventory_shields":  ["wooden_shield"],
+    "off_hand":           None,
+    "inventory_weapons":  ["sword"],
+    "inventory_shields":  [],
     "highest_floor":      0,
     "items":              [],
     "item_charges":       {},

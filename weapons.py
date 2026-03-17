@@ -17,6 +17,11 @@
 #   reach_mult   - optional reach multiplier for this step (default 1.0)
 #   windup       - frames of charge-up before the finisher fires (finisher only)
 #   knockback_mult - optional knockback multiplier for this step (default 1.0)
+#   hitstop        - freeze frames on hit (default 2)
+#   shake_strength - screen shake strength on hit (default 4)
+#   shake_duration - screen shake duration on hit (default 8)
+#   swing_squash   - (sx, sy) player squash on swing start (default (1.3, 0.75))
+#   hit_squash     - (sx, sy) enemy squash when hit by this step (default (1.6, 0.5))
 #
 # Animation types:
 #   "sweep_right" - arc swing from left to right
@@ -37,22 +42,33 @@ WEAPONS = {
         "charge_damage_mult": 1.4,
         "color":             (210, 210, 230),
         "color_tip":         (240, 240, 255),
+        "can_block":         True,
+        "block_reduction":   0.50,
+        "block_stamina":     16.0,
+        "parry_window":      10,
+        "parry_stagger":     50,
         "combo": [
             {   # Step 1: slash right
                 "anim": "sweep_right",
                 "swing_frames": 10, "cooldown": 18, "window": 28,
                 "arc": 120, "tolerance": 42, "damage_mult": 1.0,
+                "hitstop": 3, "shake_strength": 5, "shake_duration": 8,
+                "swing_squash": (1.3, 0.75), "hit_squash": (1.5, 0.55),
             },
             {   # Step 2: slash left
                 "anim": "sweep_left",
                 "swing_frames": 10, "cooldown": 18, "window": 28,
                 "arc": 120, "tolerance": 42, "damage_mult": 1.0,
+                "hitstop": 3, "shake_strength": 5, "shake_duration": 8,
+                "swing_squash": (1.3, 0.75), "hit_squash": (1.5, 0.55),
             },
             {   # Step 3: finisher thrust
                 "anim": "thrust",
                 "swing_frames": 10, "cooldown": 22, "window": 0,
                 "arc": 0, "tolerance": 28, "damage_mult": 2.5,
                 "windup": 16, "reach_mult": 1.3, "knockback_mult": 1.5,
+                "hitstop": 6, "shake_strength": 10, "shake_duration": 14,
+                "swing_squash": (0.5, 1.6), "hit_squash": (1.8, 0.4),
             },
         ],
     },
@@ -67,32 +83,43 @@ WEAPONS = {
         "charge_damage_mult": 1.2,
         "color":             (180, 190, 200),
         "color_tip":         (220, 230, 240),
+        "can_block":         False,
         "combo": [
             {   # Step 1: quick stab
                 "anim": "stab",
                 "swing_frames": 6, "cooldown": 10, "window": 20,
                 "arc": 40, "tolerance": 35, "damage_mult": 1.0,
+                "hitstop": 1, "shake_strength": 2, "shake_duration": 5,
+                "swing_squash": (1.15, 0.88), "hit_squash": (1.3, 0.7),
             },
             {   # Step 2: quick stab
                 "anim": "stab",
                 "swing_frames": 6, "cooldown": 10, "window": 20,
                 "arc": 40, "tolerance": 35, "damage_mult": 1.0,
+                "hitstop": 1, "shake_strength": 2, "shake_duration": 5,
+                "swing_squash": (1.15, 0.88), "hit_squash": (1.3, 0.7),
             },
             {   # Step 3: quick stab
                 "anim": "stab",
                 "swing_frames": 6, "cooldown": 10, "window": 20,
                 "arc": 40, "tolerance": 35, "damage_mult": 1.1,
+                "hitstop": 1, "shake_strength": 2, "shake_duration": 5,
+                "swing_squash": (1.15, 0.88), "hit_squash": (1.3, 0.7),
             },
             {   # Step 4: quick stab
                 "anim": "stab",
                 "swing_frames": 6, "cooldown": 10, "window": 20,
                 "arc": 40, "tolerance": 35, "damage_mult": 1.2,
+                "hitstop": 2, "shake_strength": 3, "shake_duration": 6,
+                "swing_squash": (1.2, 0.85), "hit_squash": (1.35, 0.65),
             },
             {   # Step 5: finisher cross-slash
                 "anim": "sweep_right",
                 "swing_frames": 8, "cooldown": 16, "window": 0,
                 "arc": 100, "tolerance": 40, "damage_mult": 2.0,
                 "windup": 8, "reach_mult": 1.2, "knockback_mult": 1.3,
+                "hitstop": 4, "shake_strength": 7, "shake_duration": 10,
+                "swing_squash": (1.4, 0.65), "hit_squash": (1.6, 0.45),
             },
         ],
     },
@@ -107,18 +134,27 @@ WEAPONS = {
         "charge_damage_mult": 1.6,
         "color":             (160, 140, 120),
         "color_tip":         (200, 180, 150),
+        "can_block":         True,
+        "block_reduction":   0.35,
+        "block_stamina":     20.0,
+        "parry_window":      8,
+        "parry_stagger":     70,
         "combo": [
             {   # Step 1: wide sweep
                 "anim": "wide_sweep",
                 "swing_frames": 14, "cooldown": 24, "window": 34,
                 "arc": 160, "tolerance": 50, "damage_mult": 1.0,
                 "knockback_mult": 1.3,
+                "hitstop": 5, "shake_strength": 8, "shake_duration": 12,
+                "swing_squash": (1.5, 0.6), "hit_squash": (1.8, 0.4),
             },
             {   # Step 2: finisher overhead smash
                 "anim": "overhead",
                 "swing_frames": 14, "cooldown": 28, "window": 0,
                 "arc": 60, "tolerance": 35, "damage_mult": 3.0,
                 "windup": 24, "reach_mult": 1.15, "knockback_mult": 2.0,
+                "hitstop": 8, "shake_strength": 14, "shake_duration": 18,
+                "swing_squash": (0.4, 1.8), "hit_squash": (2.0, 0.3),
             },
         ],
     },

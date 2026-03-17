@@ -2,161 +2,387 @@ INSTRUCTIONS FOR CLAUDE - RPG GAME PROJECT
 
 Hello! This is an ongoing game development project. Please read these instructions carefully before doing anything, so we can work in a focused and efficient way.
 
+═══════════════════════════════════════════════
 WHO I AM
+═══════════════════════════════════════════════
 
 My name is Roy. I am a beginner programmer and I learn by doing.
 
 Explain things when necessary, but do not over-explain if I simply want to build something. Keep it practical, hands-on, and focused on getting things working.
 
-WHAT WE ARE BUILDING
+═══════════════════════════════════════════════
+WHAT WE ARE BUILDING — THE VISION
+═══════════════════════════════════════════════
 
-A top-down 2D RPG / roguelite in Python using Pygame.
+A top-down 2D action RPG / roguelite in Python using Pygame.
 
-Story direction (not implemented yet)
+This is not a Binding of Isaac clone. The inspirations are:
+- Hades / Hades II — combat feel, speed, depth, and NPC relationships
+- Diablo — dark atmosphere, loot, character progression
+- Dark Souls / Skyrim — one character that can learn everything, no class restriction
+- Demon's Souls — hidden NPCs, meaningful choices, cryptic world-building
 
-The story still needs to be developed, but it should have a mysterious medieval atmosphere. The idea is that a hero (the player) is forced to enter the forest in search of something that is plagueing the lang with a curse, and along the way must fight many enemies that are afflicted by this curse. This can be developed later.
+The tone is dark, mysterious, and medieval. The world is afflicted by a curse. Most people have fled or succumbed. The player is one of the few who ventures into the danger.
 
-CORE GAMEPLAY MECHANICS
+───────────────────────────────────────────────
+STORY
+───────────────────────────────────────────────
 
-WASD movement
+The land is plagued by a curse that corrupts everything it touches — forests dying, animals going feral, and strangest of all: people getting lost. Knights, adventurers, and mercenaries have been sent in to find the source, but most never returned. Those who did come back confused and broken, rambling that the forest seems to constantly change — paths that weren't there before, rooms that shift, landmarks that disappear. This is the lore reason why the levels are procedurally generated: the curse itself warps the land.
 
-The player always faces the mouse cursor
+The player is a squire. Not a chosen hero — just someone's apprentice. Your knight, a figure of great renown, took you under his wing from a young age. He is the closest thing to family you have. He left to investigate the curse. He said he would return in seven days. Today is day eight.
 
-Spacebar = dodge
+So you go in after him.
 
-Spacebar HOLD = sprint
+The motivation must feel earned, not forced. Before the game begins, the relationship between player and knight should be established clearly enough that the player believes this squire would walk into danger alone. He is not just your employer — he believed in you when no one else did.
 
-Left mouse button = Normal attack
+There is also a second, larger reason to go: the knight was the only one who had any real leads on the source of the curse. The curse is spreading, getting closer to the castle every day. Finding him may be the only way to stop it.
 
-Right mouse button = Block
+The people who came back from the forest are not just confused — some of them say contradictory things. One claims to have seen the knight alive. Another says he watched him die. A third does not recognise his own name. The curse does not just warp the land — it warps memory, identity, perception. This makes the knight's fate genuinely uncertain and gives the player a darker question to sit with: is he still findable? Is he still himself?
 
-Additional combat/game feel features:
+The hub is a castle — abandoned, crumbling, but yours. As you rescue survivors from the levels, the hub slowly comes to life. The kind of people you bring back — and the choices you make — shape what the hub becomes.
 
-Flinch and knockback on hit (for both player and enemies)
+Lore delivery: story is told in fragments, never in cutscenes. Notes, journals, environmental details, and NPC dialogue gradually reveal what happened. Players who pay attention understand more than players who don't. This is intentional.
 
-Squash and stretch animations on both player and enemies
+───────────────────────────────────────────────
+CHARACTER PROGRESSION — ONE CHARACTER, EVERYTHING IS LEARNABLE
+───────────────────────────────────────────────
 
-Camera smoothing that follows the player with slight delay
+The player starts as a level 1 fighter with a sword and nothing else. There are no classes.
 
-ROGUELITE LOOP
+Skills, spells, and abilities are learned from NPCs in the hub. What you can learn depends on who you've rescued. A rescued wizard teaches magic. A rescued rogue teaches stealth techniques. A warlock only appears if you've made certain darker choices.
 
-The player starts in the castle (hub)
+This means two players can end up with very different builds based purely on who they rescued and what they decided to learn — without the game ever forcing a class on them.
 
-From the hub, the player selects a level. Level 1 is the forest, level 2 is not developed yet but might be the dark forest, lever 3 might be the mountians etc. etc. 
+═══════════════════════════════════════════════
+THE HUB AND NPC SYSTEM
+═══════════════════════════════════════════════
 
-Eacht level contains multiple floors 
-Each floor has:
+The hub starts empty. It fills up as the player rescues NPCs from levels.
 
-Multiple connected rooms, the deeper the floor the more rooms.
+NPCs are hidden in levels — not purely random, but not obvious either:
+- Each NPC has a fixed room layout (always the same design), but its location within the level is randomized
+- On a first playthrough, NPCs feel like secrets to discover
+- On repeat playthroughs, experienced players know what to look for
 
-one rest room containing a healing fountain and a powerful item
+Some NPCs only become available after others are already in the hub (e.g., a rare NPC on level 3 only spawns after you've rescued the level 1 NPC). This creates a natural unlock tree.
 
-one boss room at the end
+When the player finds an NPC room, there is always a task involved — for example:
+- The NPC is locked in a cage guarded by bandits
+- Kill the bandits → one drops a key → open the cage
+- Then the player faces a choice: send them to the hub, or attack them for unique loot
+
+If the player sends them to the hub: the NPC becomes a permanent resident and offers services (training, selling items, crafting, quests, etc.)
+If the player attacks and kills them: they drop unique loot that cannot be obtained any other way, but the NPC is gone forever.
+
+Once an NPC encounter has been resolved (either way), that room no longer spawns in future runs.
+
+The hub atmosphere shifts based on the player's choices:
+- Rescue survivors → the hub becomes a refuge, hopeful but scarred
+- Consistently choose violence → darker NPCs start appearing (e.g., a warlock who only shows up if you've killed or abandoned 3+ other NPCs), the hub becomes a criminal hideout
+- This is not a binary "good/evil" meter — it is subtle and emergent from behavior
+
+═══════════════════════════════════════════════
+ROGUELITE STRUCTURE
+═══════════════════════════════════════════════
+
+Hub → select a level → clear floors → boss → return to hub
+
+Levels:
+- Level 1: The Forest
+- Level 2: The Dark Forest (not yet developed)
+- Level 3: The Mountains (not yet developed)
+- More to follow
+
+Each level has multiple floors. Each floor has:
+- Multiple connected rooms (deeper floors = more rooms)
+- One rest room with a healing fountain and a powerful item
+- One boss room at the end
+- Possible hidden NPC room (location randomized per run)
 
 On death:
+- Player returns to the hub
+- Player loses items collected in that run
+- Hub progress and rescued NPCs are permanent
 
-the player returns to the hub
+═══════════════════════════════════════════════
+CORE GAMEPLAY MECHANICS
+═══════════════════════════════════════════════
 
-the player loses items
+Movement:
+- WASD movement
+- The player always faces the mouse cursor
+- Spacebar = dodge (with i-frames)
+- Spacebar HOLD = sprint
 
+Combat:
+- Left mouse button = Normal attack
+- Right mouse button = Block (costs stamina, reduces damage)
+- Right mouse button with perfect timing = Parry (no stamina cost, staggers enemy, opens free hit window)
+
+Stamina system:
+- Stamina is used for attacks, blocking, dodging and sprinting
+- Stamina pool is generous: enough for 5-6 actions before depleting
+- Stamina regenerates quickly (full recovery in roughly 1-2 seconds)
+- Design intent: against trash mobs, stamina should barely be noticeable — the player kills in 2-3 hits and regens between groups. Against bosses (40+ hits to kill), stamina forces the player to plan, retreat, and use parry to relieve pressure.
+
+Combat feel targets:
+- Flinch and knockback on hit (for both player and enemies)
+- Squash and stretch animations on both player and enemies
+- Camera smoothing that follows the player with slight delay
+- Hitstop (brief frame freeze on impact) for weight
+- Screen shake on heavy hits
+
+═══════════════════════════════════════════════
+COMBAT DESIGN PHILOSOPHY
+═══════════════════════════════════════════════
+
+The combat has two modes that emerge from the same mechanics:
+
+Trash mobs — should feel fast, flowing, and empowering:
+- Enemies die in 2-3 hits
+- Stamina barely matters because fights are short and regen is fast
+- The player chains kills and moves through rooms with rhythm
+- Parrying trash mobs feels rewarding but is optional — you can brute force them
+- The goal is a "mowing through enemies" feeling, not a grind
+
+Boss fights — should feel like a tactical dance:
+- Bosses have long health pools (40+ hits) so stamina management matters
+- The loop is: attack until stamina is around half → retreat → read boss pattern → parry the finisher of their combo → punish with free hits → stamina recovers → repeat
+- Parry becomes essential: it is how the player relieves stamina pressure and creates openings
+- Bosses should have readable but challenging attack patterns with clear tells
+- The push-and-pull rhythm of attack/retreat/parry is the core of boss engagement
+
+Blocking vs Parry:
+- Block is the safe option: hold right mouse, costs stamina, reduces damage
+- Parry is the skill option: frame-perfect block timing, no stamina cost, staggers enemy, rewards a free hit window
+- Against trash mobs: parry is satisfying but optional
+- Against bosses: parry is how skilled players thrive — it is the main skill expression
+
+═══════════════════════════════════════════════
+LONG-TERM DEVELOPMENT PLAN
+═══════════════════════════════════════════════
+
+This is the roadmap we are working towards. We tackle these in order, one step at a time.
+
+PHASE 1 — Combat feel (CURRENT FOCUS)
+  Make The Forest feel genuinely good to play before adding anything else.
+  - Hitstop, screenshake, squash/stretch
+  - Flinch and knockback on enemies
+  - Stamina system as described above
+  - Block and parry as described above
+  - Trash mobs that feel fast and satisfying to kill
+  - Boss fight that feels like a tactical challenge
+  - Overall feel: flashy, responsive, smooth, satisfying
+
+PHASE 2 — Rest room redesign + inventory foundation
+  Replace the current item/fountain system with something more thematic and intentional.
+
+  Rest room redesign:
+  - The rest room becomes a quiet forest clearing
+  - The player can place a campfire and sleep to restore full HP
+  - Sleeping gives a reduced EXP gain for the remainder of that floor (once EXP exists)
+  - This creates a meaningful choice: heal now and lose EXP, or push on to the boss at risk
+  - Small random chance: instead of an empty clearing, the player finds an abandoned campsite
+    (recently used — warm coals, scattered belongings). This campsite contains random consumables.
+  - The abandoned campsite is discovery-based; it cannot be forced and adds replayability
+
+  Inventory system:
+  - The player has a persistent inventory
+  - Consumable items (potions etc.) are stored in inventory and survive death
+  - The current random item pedestal system is removed — items no longer spawn in combat rooms
+  - Progression comes from NPCs (Phase 3+), not from floor drops
+  - Before the NPC system exists, the inventory is built and tested with consumables only
+
+  Note: the EXP penalty for sleeping only becomes meaningful once the EXP system exists.
+  Build the campfire/heal mechanic first, add the penalty later.
+
+PHASE 3 — EXP system (basic)
+  Add experience points as a foundation for progression.
+  - Enemies give EXP on death, scaled by difficulty
+  - Floor boss gives a large EXP bonus
+  - Sleeping at a campfire on that floor reduces EXP gain for the rest of the floor
+  - EXP is used later for character progression (Phase 5+); for now it just tracks and displays
+
+PHASE 4 — NPC system (first pass)
+  Add the first rescuable NPC to Level 1 as a full prototype.
+  - Design the NPC room (fixed layout, random location within the level)
+  - Implement the rescue/kill choice
+  - If rescued: NPC appears in hub with at least one function (selling consumables or teaching a skill)
+  - If killed: drops unique loot that cannot be obtained any other way; room never spawns again
+  - This proves the system works end-to-end before adding more NPCs
+
+PHASE 5 — Story foundation
+  Give the game a reason to exist.
+  - Write the opening (who is the player, why are they going in)
+  - Add environmental storytelling in The Forest (notes, destroyed campsites, corrupted creatures)
+  - Give the first NPC a backstory that hints at the curse
+
+PHASE 6 — Hub development
+  Make the hub feel alive.
+  - Add more NPCs with different unlock conditions
+  - Implement hub atmosphere shifts based on player choices
+  - Add hub-based progression (training, crafting, upgrades)
+  - First pass on the "good refuge vs criminal hideout" fork
+
+PHASE 7 — Character progression system
+  Implement the "learn everything" system.
+  - NPCs teach skills and abilities using EXP or a separate currency
+  - Player can learn melee techniques, magic, stealth etc. depending on who they rescued
+  - No class system — purely shaped by choices and NPCs
+
+PHASE 8 — Expand levels and enemies
+  - Level 2: The Dark Forest
+  - New enemy types per level
+  - More boss variety
+  - Deeper NPC unlock trees across levels
+
+PHASE 9 — Polish and depth
+  - Improve map generation
+  - Sound and music
+  - Visual polish
+  - Balancing
+
+═══════════════════════════════════════════════
+CURRENT PRIORITY
+═══════════════════════════════════════════════
+
+PHASE 1 — Combat feel (in progress).
+
+The game should feel:
+- Flashy
+- Responsive
+- Smooth
+- Satisfying
+- Readable but not too easy
+
+───────────────────────────────────────────────
+WHAT HAS BEEN DONE IN PHASE 1
+───────────────────────────────────────────────
+
+Stamina:
+- Stamina delay increased to 70 frames (clear pause before regen starts)
+- Regen rate slowed to 0.8% per frame (full recovery ~2.8 sec from empty)
+- Stamina was already costing on sword swings — no change needed there
+
+Fullscreen:
+- Game runs fullscreen using pygame.FULLSCREEN | pygame.SCALED
+- Automatically scales to any monitor resolution, mouse coordinates handled by pygame
+
+Parry system:
+- Parry is a weapon property (parry_window, parry_stagger in weapons.py)
+- Pressing RMB starts a parry window (12 frames for shield)
+- Hit within window = parry: no stamina cost, enemy staggered, visual feedback
+- Hit outside window = normal block
+- Boss attacks are not parryable (blockable only)
+- Arrows are not parryable (blockable only, fixed hoek bug that made them unblockable)
+- Wolf mid-attack is interrupted on parry (state reset to recovery)
+
+Weapon & equipment system:
+- Data-driven weapon definitions in weapons.py (sword, dagger, axe)
+- Each weapon has unique combo pattern with per-step tuning (arc, damage, timing, animation)
+- Per-weapon squash & stretch: swing_squash and hit_squash tuples per combo step
+- Separate main_hand (weapon) and off_hand (shield) equipment slots
+- Equip menu (Tab key) to swap weapons and equip/unequip shield
+- Save migration from old format to new equipment model
+- Player currently starts with sword only (dagger, axe, shield removed from starting inventory for Phase 1)
+
+Hitstop:
+- Hitstop on all melee hits (configurable per combo step in weapons.py)
+- Boss has subtle hitstop (3 frames) for feedback without interrupting flow
+
+Architecture refactor:
+- Data-driven enemies: enemy_defs.py — all enemy stats as dicts, adding an enemy = adding a dict
+- Data-driven bosses: boss_defs.py — all boss attacks, timings, priorities as data
+- BaseLevel/ForestScene split: base_level.py (~700 lines shared logic), forest.py (~200 lines forest-specific)
+- Adding a new level = subclass BaseLevel + provide theme data
+
+Boss fight — The Forest Warrior:
+- 4 attacks with clear visual tells:
+  - Melee: big 180° sword swoosh with trail (reach 120px, 30-frame windup with red glow)
+  - Charge: danger zone stripe + arrow indicator during windup
+  - Stamp: growing warning circle on ground showing AoE radius
+  - Jump: boss leaps up, shadow grows at landing spot, high AoE damage, boss stunned after landing
+- Boss is unstoppable: zero flinch, zero knockback from player attacks (visual feedback only)
+- Attack rhythm tuned: melee = quick jab (short punish), charge/stamp/jump = heavy attacks (longer punish)
+- HP: 700, no phase 2 (removed for simplicity)
+- Block lets 50% damage through (BLOCK_DAMAGE_THROUGH = 0.50)
+
+Enemy behavior:
+- Wolves sleep in packs until player approaches (flat sprite + "z z z")
+- Group aggro: one wolf waking up wakes the entire pack
+- Other enemies (melee, ranged) patrol without "zzz" indicator
+- Wolf spawn offsets tightened so they form a visible sleeping pack
+
+Room generation:
+- Variable room sizes: small (18×14), medium (26×20), large (34×26 tiles)
+- Floor progression: early floors have smaller, fewer rooms; deeper floors have larger, more rooms
+- Floor 1: 3-4 rooms, mostly small; Floor 4+: 5-8 rooms, mostly large
+- Boss rooms always medium, rest rooms always small
+- All 6 layout types (pillars, chokepoint, corridor, ruins, arena, split) scale to any room size
+- Camera, doors, spawn positions all adapt dynamically to room dimensions
+
+───────────────────────────────────────────────
+WHAT STILL NEEDS TO BE DONE IN PHASE 1
+───────────────────────────────────────────────
+
+- Overall difficulty tuning (ongoing — tweak numbers in boss_defs.py / enemy_defs.py)
+- General feel pass: does it feel flashy, responsive, satisfying?
+- Later: add dagger, axe, shield back as unlockable weapons (currently removed from starting inventory)
+
+═══════════════════════════════════════════════
 TECHNICAL CONSTRAINTS
+═══════════════════════════════════════════════
 
-Python 3.12
+- Python 3.12
+- Pygame 2.6.1
+- NumPy (for sound, needs improvement later)
+- GitHub: Royschuurkes
 
-Pygame 2.6.1
+═══════════════════════════════════════════════
+LANGUAGE
+═══════════════════════════════════════════════
 
-NumPy (for sound, for now this must be improved later)
+Roy communicates in Dutch. That is fine and will not change.
 
-GitHub: Royschuurkes
+Everything else must be in English:
+- All code (variable names, function names, comments, strings)
+- All in-game text (UI, dialogue, item names, lore notes)
+- All design documents and this instruction file
 
+If Dutch text appears anywhere in the code or game, that is a mistake and should be corrected.
+
+═══════════════════════════════════════════════
 HOW WE WORK TOGETHER
+═══════════════════════════════════════════════
 
 At the start of each chat, Roy shares the instructions and the current project files.
 
+Efficiency is a top priority:
+- Work directly in the local game files — no worktrees, no copies
+- Minimize token usage: be concise, skip unnecessary explanations
+- Do not recap or summarize what was already said
+- Get to the point and start building
+
 You should:
-
-Read the instruction and the code first before suggesting changes
-
-Work on one feature at a time
-
-Treat the current game code as the source of truth, the instruction is purely to get an idea of what our goal is but the game code tells you 
+- Read the instruction and the code first before suggesting changes
+- Work on one feature at a time
+- Treat the current game code as the source of truth; the instruction is purely to get an idea of what our goal is but the game code tells you what is actually implemented
 
 Important: these written instructions may sometimes differ slightly from the current state of the code, because the project is constantly evolving. When that happens, the actual codebase is leading. Follow the code first, and treat these instructions as design direction rather than absolute truth.
 
-CURRENT PRIORITY
-
-Our main priority right now is not story, hub content, additional levels, or deeper progression systems.
-
-The current focus is to make the first level, The Forest, feel really good to play.
-
-The game should feel:
-
-flashy
-
-responsive
-
-smooth
-
-satisfying
-
-readable but not too easy
-
-The main inspirations are:
-
-The Binding of Isaac
-
-Archero
-
-Hades / Hades II for combat feel
-
-Right now, the most important goal is to improve the combat feel in The Forest. That includes things like:
-
-better moment-to-moment combat flow
-
-stronger combo feel
-
-better enemy interaction
-
-better control over the hero
-
-more satisfying impact and responsiveness
-
-a difficulty level that is engaging and not too easy
-
-pushing the combat feel more toward Hades-style combat
-
-Only after the combat feels genuinely good should we move on to:
-
-tweaking items
-
-improving map generation
-
-expanding enemies
-
-adding more levels
-
-developing the story
-
-adding meaningful hub content
-
+═══════════════════════════════════════════════
 HOW I WANT YOU TO RESPOND
+═══════════════════════════════════════════════
 
 When helping me, please follow these guidelines:
-
-First inspect the current code and base your advice on what is actually there
-
-Be practical and implementation-focused
-
-Prefer clear, incremental improvements over huge redesigns
-
-When proposing a feature, explain briefly what will change and why
-
-Keep code consistent with the current architecture and file structure
-
-If something is unclear or inconsistent, point it out directly
-
-Help me build step by step
-
-Prioritize feel, responsiveness, and gameplay quality over abstract system design
-
-If I ask for a new feature or improvement, help me implement it in the simplest solid way first. We can polish or refactor later.
+- First inspect the current code and base your advice on what is actually there
+- Be practical and implementation-focused
+- Prefer clear, incremental improvements over huge redesigns
+- When proposing a feature, explain briefly what will change and why
+- Keep code consistent with the current architecture and file structure
+- If something is unclear or inconsistent, point it out directly
+- Help me build step by step
+- Prioritize feel, responsiveness, and gameplay quality over abstract system design
+- If I ask for a new feature or improvement, help me implement it in the simplest solid way first. We can polish or refactor later.
+- Always keep the long-term vision in mind when making decisions, even when working on small things
