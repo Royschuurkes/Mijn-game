@@ -129,7 +129,7 @@ class HubScene:
             sy = ety * TILE - cam_y
             pygame.draw.rect(self.screen, (80, 160, 80), (sx, sy, TILE, TILE))
         if self.player_y // TILE >= HUB_H - 2:
-            t = self.font_s.render("Het Bos", True, (200, 255, 200))
+            t = self.font_s.render("The Forest", True, (200, 255, 200))
             self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, SCREEN_H - 40))
 
         # Player
@@ -150,15 +150,15 @@ class HubScene:
                 overlay = pygame.Surface((SCREEN_W, 120), pygame.SRCALPHA)
                 overlay.fill((0, 0, 0, min(160, alpha)))
                 self.screen.blit(overlay, (0, SCREEN_H // 2 - 70))
-                t1 = self.font_g.render("Welkom terug, ridder!", True, (220, 200, 120))
+                t1 = self.font_g.render("Welcome back, knight!", True, (220, 200, 120))
                 t1.set_alpha(alpha)
                 self.screen.blit(t1, (SCREEN_W // 2 - t1.get_width() // 2, SCREEN_H // 2 - 55))
-                t2 = self.font_m.render(f"Hoogste floor bereikt: Floor {floor_reached}",
+                t2 = self.font_m.render(f"Highest floor reached: Floor {floor_reached}",
                                         True, (180, 220, 255))
                 t2.set_alpha(alpha)
                 self.screen.blit(t2, (SCREEN_W // 2 - t2.get_width() // 2, SCREEN_H // 2 - 10))
 
     def draw_hud(self):
-        t = self.font_s.render("Hub  —  WASD bewegen  |  loop naar het portaal",
+        t = self.font_s.render("Hub  —  WASD to move  |  walk to the portal",
                                True, (220, 220, 180))
         self.screen.blit(t, (10, 10))

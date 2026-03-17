@@ -9,11 +9,12 @@ from constants import *
 #   enemies        : list of enemy group compositions (one picked per room)
 #   damage_mult    : how hard enemies hit on this floor
 #   hp_mult        : enemy HP multiplier on this floor
+#   room_sizes     : weighted list of (size_name, weight) for combat rooms
 
 FLOOR_DEFINITIONS = {
     1: {
-        "rooms_min": 4, "rooms_max": 5,
-        "rest_after": 3,
+        "rooms_min": 3, "rooms_max": 4,
+        "rest_after": 2,
         "damage_mult": 1.0, "hp_mult": 1.0,
         "enemies": [
             [("wolf",   2, 1.0)],
@@ -22,9 +23,10 @@ FLOOR_DEFINITIONS = {
             [("ranged", 2, 1.0)],
             [("wolf",   1, 1.0)],
         ],
+        "room_sizes": [("small", 0.7), ("medium", 0.3)],
     },
     2: {
-        "rooms_min": 4, "rooms_max": 6,
+        "rooms_min": 4, "rooms_max": 5,
         "rest_after": 3,
         "damage_mult": 1.1, "hp_mult": 1.2,
         "enemies": [
@@ -33,9 +35,10 @@ FLOOR_DEFINITIONS = {
             [("ranged", 3, 1.2)],
             [("wolf",   3, 1.2)],
         ],
+        "room_sizes": [("small", 0.4), ("medium", 0.6)],
     },
     3: {
-        "rooms_min": 5, "rooms_max": 7,
+        "rooms_min": 5, "rooms_max": 6,
         "rest_after": 4,
         "damage_mult": 1.2, "hp_mult": 1.5,
         "enemies": [
@@ -44,6 +47,7 @@ FLOOR_DEFINITIONS = {
             [("ranged", 2, 1.5), ("wolf",   2, 1.5)],
             [("wolf",   4, 1.5)],
         ],
+        "room_sizes": [("small", 0.1), ("medium", 0.5), ("large", 0.4)],
     },
     4: {
         "rooms_min": 5, "rooms_max": 8,
@@ -54,6 +58,7 @@ FLOOR_DEFINITIONS = {
             [("ranged", 4, 1.8)],
             [("wolf",   3, 2.0), ("ranged", 1, 1.5)],
         ],
+        "room_sizes": [("medium", 0.4), ("large", 0.6)],
     },
 }
 
@@ -73,7 +78,15 @@ def _get_floor_def(floor_num):
         "damage_mult": round(base["damage_mult"] + extra, 2),
         "hp_mult":     round(base["hp_mult"]     + extra, 2),
         "enemies":     base["enemies"],
+        "room_sizes":  base["room_sizes"],
     }
+
+
+def _pick_room_size(fd):
+    """Pick a room size based on weighted probabilities from floor def."""
+    sizes = fd.get("room_sizes", [("medium", 1.0)])
+    names, weights = zip(*sizes)
+    return random.choices(names, weights=weights, k=1)[0]
 
 
 OPPOSITE        = {"N": "S", "S": "N", "E": "W", "W": "E"}
@@ -128,13 +141,16 @@ def generate_floor_graph(floor_num):
             room_type    = "boss"
             hp           = round(fd["hp_mult"] * (1.0 + floor_num * 0.2), 2)
             enemy_config = [("boss", 1, hp)]
+            room_size    = "medium"  # boss always medium
         elif pos == rest_pos:
             room_type    = "rest"
             enemy_config = []
+            room_size    = "small"   # rest rooms are cozy
         else:
             room_type    = "combat"
             comp         = random.choice(fd["enemies"])
             enemy_config = [(t, n, round(h * fd["hp_mult"], 2)) for t, n, h in comp]
+            room_size    = _pick_room_size(fd)
 
         room_graph[pos] = {
             "type":          room_type,
@@ -147,6 +163,7 @@ def generate_floor_graph(floor_num):
             "fountain_used": False,
             "item_taken":    False,
             "map_data":      None,
+            "size":          room_size,
         }
 
     return room_graph, order[0]
@@ -168,8 +185,8 @@ class LevelManager:
     def is_combat(self): return self.room_type == "combat"
 
     def description(self, room_num=None, total=None):
-        if self.is_rest: return f"Floor {self.floor_num}  -  Rustplaats"
-        if self.is_boss: return f"Floor {self.floor_num}  -  EINDBAAS!"
+        if self.is_rest: return f"Floor {self.floor_num}  -  Rest Room"
+        if self.is_boss: return f"Floor {self.floor_num}  -  BOSS!"
         if room_num and total:
-            return f"Floor {self.floor_num}  -  Kamer {room_num}/{total}"
+            return f"Floor {self.floor_num}  -  Room {room_num}/{total}"
         return f"Floor {self.floor_num}"

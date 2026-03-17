@@ -2,8 +2,9 @@
 import math, random
 import pygame
 from constants import *
-
-SWORD_REACH = 88  # px — tweak here to adjust melee range
+from weapons import get_weapon, get_shield, combo_step_data, combo_length, is_finisher
+from enemy_defs import get_enemy
+from boss_defs import get_boss
 
 
 def normalize(x, y):
@@ -87,9 +88,10 @@ class Player:
         self.lock_fy       = 1.0
         self.facing_locked = False
 
-        # Shield / guard break
+        # Shield / guard break / parry
         self.guard_break_timer = 0
         self.shield_broken     = False
+        self.parry_timer       = 0
 
         # Squash & stretch
         self.scale_x = 1.0
@@ -108,13 +110,33 @@ class Player:
     @property
     def can_attack(self): return self.flinch_timer == 0
 
-    # ── Save helpers ──────────────────────────────────────────────────────────
+    # ── Equipment helpers ────────────────────────────────────────────────────
     def _weapon(self):
-        from weapons import get_weapon
-        return get_weapon(self.save.get("weapon", "shield"))
+        return get_weapon(self.save.get("main_hand", "sword"))
+
+    def _shield(self):
+        return get_shield(self.save.get("off_hand"))
 
     def _has_shield(self):
-        return self._weapon().get("type") == "shield"
+        return self._shield() is not None
+
+    def _can_block(self):
+        """Can the player block? True if shield equipped OR weapon has can_block."""
+        if self._shield() is not None:
+            return True
+        return self._weapon().get("can_block", False)
+
+    def _block_stats(self):
+        """Return (stamina_cost, block_reduction, parry_window, parry_stagger) from shield or weapon."""
+        shield = self._shield()
+        if shield:
+            return (shield["stamina_cost"], shield.get("block_reduction", 0.7),
+                    shield["parry_window"], shield["parry_stagger"])
+        weapon = self._weapon()
+        if weapon.get("can_block"):
+            return (weapon["block_stamina"], weapon["block_reduction"],
+                    weapon["parry_window"], weapon["parry_stagger"])
+        return None
 
     def has_item(self, key):
         return key in self.save.get("items", [])
@@ -124,8 +146,12 @@ class Player:
 
     # ── Attack input ──────────────────────────────────────────────────────────
     def _try_attack(self, block=False):
+        weapon    = self._weapon()
+        stam_cost = weapon["stamina_cost"]
+        n_combo   = combo_length(weapon)
+
         if block: return
-        SWING_CD = 18
+        if self.stamina < stam_cost: return
 
         # ── Charge attack: tijdens dodge of sprint ────────────────────────────
         can_charge = (
@@ -135,6 +161,8 @@ class Player:
             and self.finisher_windup == 0
         )
         if can_charge:
+            self.stamina       -= stam_cost
+            self.stamina_delay  = STAMINA_DELAY
             self.charge_timer        = CHARGE_FRAMES
             self.charge_dx           = self.fx * CHARGE_SPEED
             self.charge_dy           = self.fy * CHARGE_SPEED
@@ -157,53 +185,66 @@ class Player:
         # ── Normale combo ─────────────────────────────────────────────────────
         if self.charge_timer > 0: return   # nog aan het chargen
 
+        next_step = (self.combo_step % n_combo) + 1
+        cur_data  = combo_step_data(weapon, max(1, self.combo_step)) if self.combo_step > 0 else None
+        next_data = combo_step_data(weapon, next_step)
+        cur_cd    = cur_data["cooldown"] if cur_data else 0
+
         can = (self.combo_timer == 0 and self.finisher_windup == 0
                and self.swing_cooldown == 0 and self.post_combo_cooldown == 0
                and self.can_attack and self.dodge_timer == 0)
-        if (self.combo_window > 0 and self.combo_step in (1, 2)
+        if (self.combo_window > 0 and self.combo_step > 0
+                and not is_finisher(weapon, self.combo_step)
                 and self.combo_timer == 0 and self.swing_cooldown == 0
                 and self.post_combo_cooldown == 0):
             can = True
 
         if not can:
-            if self.combo_timer > 0 and self.combo_step in (1, 2):
-                self.swing_cooldown = min(self.swing_cooldown + 8, SWING_CD + 8)
+            if (self.combo_timer > 0 and self.combo_step > 0
+                    and not is_finisher(weapon, self.combo_step)):
+                self.swing_cooldown = min(self.swing_cooldown + 8, cur_cd + 8)
             return
 
-        if (self.combo_step % 3) + 1 == 3:
-            self.combo_step      = 2
+        if is_finisher(weapon, next_step):
+            # About to do finisher — enter windup
+            self.combo_step      = next_step - 1  # stay on pre-finisher step
             self.combo_timer     = 0
             self.combo_window    = 0
-            self.finisher_windup = 16
+            self.finisher_windup = next_data.get("windup", 16)
             self.is_dash_strike  = False
             self.facing_locked   = True
             self.lock_fx = self.fx; self.lock_fy = self.fy
             import sound as _snd; _snd.play("finisher_charge")
         else:
-            self.combo_step        = (self.combo_step % 3) + 1
-            self.combo_timer       = 10
-            self.combo_window      = 28
+            self.combo_step        = next_step
+            self.combo_timer       = next_data["swing_frames"]
+            self.combo_window      = next_data["window"]
             self.combo_reset_timer = 0
             self.is_dash_strike    = False
             import sound as _snd
             _snd.play("sword_swing_1" if self.combo_step == 1 else "sword_swing_2")
 
+        self.stamina          -= stam_cost
         self.stamina_delay     = STAMINA_DELAY
-        self.swing_cooldown    = SWING_CD
+        self.swing_cooldown    = next_data["cooldown"]
         self.hit_ids           = set()
         self._combo_idle_timer = 0
 
         if not self.finisher_windup:
             self.lock_fx = self.fx; self.lock_fy = self.fy
             self.facing_locked = True
+            sq = next_data.get("swing_squash", (1.3, 0.75))
+            self.scale_x = sq[0]; self.scale_y = sq[1]
 
     # ── Event handling ────────────────────────────────────────────────────────
     def handle_events(self, events, block=False):
         COMBO_TIMEOUT = 22
+        weapon = self._weapon()
+        cur_swing = combo_step_data(weapon, max(1, self.combo_step))["swing_frames"] if self.combo_step > 0 else 10
 
-        for e in events:                                         # ← loop start
+        for e in events:
             if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE:
-                combo_elapsed = 10 - self.combo_timer
+                combo_elapsed = cur_swing - self.combo_timer
                 dodge_ok = (self.dodge_timer <= 0 and self.dodge_cooldown <= 0
                             and self.stamina >= STAMINA_DODGE
                             and self.dodge_timer == 0)
@@ -217,6 +258,7 @@ class Player:
                     self.dodge_dy            = by * DODGE_SPEED
                     self.dodge_timer         = DODGE_FRAMES
                     self.dodge_cooldown      = DODGE_CD
+                    self.stamina            -= STAMINA_DODGE
                     self.stamina_delay       = STAMINA_DELAY
                     self.scale_x = 1.4; self.scale_y = 0.7
                     self.dash_strike_window  = DODGE_FRAMES + 8
@@ -232,24 +274,13 @@ class Player:
                     self.swing_cooldown      = 0
                     self.post_combo_cooldown = 0
 
-            if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:   # ← zelfde inspringing als K_SPACE
+            if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
                 self._try_attack(block)
 
-        # Hold LMB: auto-swing when button held and cooldown ready
-        if pygame.mouse.get_pressed()[0] and not block:
-            if (self.combo_timer == 0 and self.finisher_windup == 0
-                    and self.swing_cooldown == 0):
-                self._try_attack(block)
-
-        # Combo timeout
-        if (self.combo_step > 0 and self.combo_timer == 0
-                and self.finisher_windup == 0 and self.combo_window == 0):
-            self._combo_idle_timer += 1
-            if self._combo_idle_timer > COMBO_TIMEOUT:
-                self.combo_step        = 0
-                self._combo_idle_timer = 0
-        else:
-            self._combo_idle_timer = 0
+            if e.type == pygame.MOUSEBUTTONDOWN and e.button == 3:
+                stats = self._block_stats()
+                if stats and not self.shield_broken:
+                    self.parry_timer = stats[2]  # parry_window
 
         # Hold LMB: auto-swing when button held and cooldown ready
         if pygame.mouse.get_pressed()[0] and not block:
@@ -291,10 +322,17 @@ class Player:
 
         sprint = (keys[pygame.K_SPACE] and self.dodge_timer == 0
                   and self.charge_timer == 0
-                  and math.hypot(mx, my) > 0.1)
+                  and math.hypot(mx, my) > 0.1
+                  and self.stamina > 0)
         self._sprint_active = sprint
+        if sprint:
+            self.stamina = max(0, self.stamina - SPRINT_STAMINA)
 
-        combo_elapsed = 10 - self.combo_timer
+        weapon     = self._weapon()
+        n_combo    = combo_length(weapon)
+        cur_data   = combo_step_data(weapon, max(1, self.combo_step)) if self.combo_step > 0 else None
+        cur_swing  = cur_data["swing_frames"] if cur_data else 10
+        combo_elapsed = cur_swing - self.combo_timer
 
         # Speed
         if self.dodge_timer > 0:
@@ -302,9 +340,9 @@ class Player:
         elif self.finisher_windup > 0:
             speed = 0.0
         elif self.combo_timer > 0:
-            if combo_elapsed < 2:      speed = 0.0
-            elif self.combo_step == 3: speed = 0.0
-            else:                      speed = PLAYER_SPEED * 0.25
+            if combo_elapsed < 2:                           speed = 0.0
+            elif is_finisher(weapon, self.combo_step):      speed = 0.0
+            else:                                           speed = PLAYER_SPEED * 0.25
         elif self.combo_reset_timer > 0:
             speed = PLAYER_SPEED * 0.5
         elif block:   speed = PLAYER_SPEED * 0.5
@@ -319,7 +357,7 @@ class Player:
             self.flinch_dx *= 0.8; self.flinch_dy *= 0.8
         elif self.dodge_timer > 0:
             dx, dy = self.dodge_dx, self.dodge_dy
-        elif self.combo_timer > 0 and self.combo_step == 3:
+        elif self.combo_timer > 0 and is_finisher(weapon, self.combo_step):
             lunge  = PLAYER_SPEED * 1.8 * max(0, (6 - combo_elapsed) / 6)
             dx, dy = self.fx * lunge, self.fy * lunge
         else:
@@ -355,17 +393,19 @@ class Player:
 
             if self.charge_timer == 0:
                 # Land — auto-start combo stap 1
+                step1 = combo_step_data(weapon, 1)
                 self.is_charging         = False
                 self.combo_step          = 1
-                self.combo_timer         = 10
-                self.combo_window        = 28
+                self.combo_timer         = step1["swing_frames"]
+                self.combo_window        = step1["window"]
                 self.dash_strike_window  = 0
                 self.is_dash_strike      = False
                 self.hit_ids             = set()
                 self.lock_fx = self.fx; self.lock_fy = self.fy
                 self.facing_locked       = True
-                self.swing_cooldown      = 18
-                self.scale_x = 1.5; self.scale_y = 0.6
+                self.swing_cooldown      = step1["cooldown"]
+                sq = step1.get("swing_squash", (1.3, 0.75))
+                self.scale_x = sq[0]; self.scale_y = sq[1]
                 import sound as _snd; _snd.play("sword_swing_1")
 
         # Tick timers
@@ -389,14 +429,16 @@ class Player:
             if self.guard_break_timer == 0:
                 self.shield_broken = False
 
+        # Parry window countdown
+        if self.parry_timer > 0:
+            self.parry_timer -= 1
+
         # Stamina regen
-        if block:
-            pass  # geen regen tijdens blokkeren
-        elif self.stamina < self.stamina_max:
-            self.stamina = min(self.stamina_max,
-                               self.stamina + (self.stamina_max * STAMINA_REGEN_PCT / FPS))
         if self.stamina_delay > 0:
             self.stamina_delay -= 1
+        elif not block and not sprint and self.stamina < self.stamina_max:
+            self.stamina = min(self.stamina_max,
+                               self.stamina + (self.stamina_max * STAMINA_REGEN_PCT / FPS))
 
         # Active effects countdown
         for eff in self.save.get("active_effects", {}):
@@ -407,12 +449,15 @@ class Player:
         if self.finisher_windup > 0:
             self.finisher_windup -= 1
             if self.finisher_windup == 0:
-                self.combo_step     = 3
-                self.combo_timer    = 10
-                self.combo_window   = 28
+                fin_step = n_combo  # finisher is always last step
+                fin_data = combo_step_data(weapon, fin_step)
+                self.combo_step     = fin_step
+                self.combo_timer    = fin_data["swing_frames"]
+                self.combo_window   = fin_data["window"]
                 self.is_dash_strike = False
                 self.hit_ids        = set()
-                self.scale_x = 0.6; self.scale_y = 1.5
+                sq = fin_data.get("swing_squash", (0.6, 1.5))
+                self.scale_x = sq[0]; self.scale_y = sq[1]
 
         # I-frames on swing start
         if self.combo_timer > 0 and combo_elapsed < 3:
@@ -434,12 +479,14 @@ class Player:
                 self.combo_step = 0
 
         # Post-finisher recovery
-        if (self.combo_timer == 0 and self.combo_step == 3
+        if (self.combo_timer == 0 and is_finisher(weapon, self.combo_step)
                 and not self._post_combo_triggered):
             self._post_combo_triggered = True
-            self.post_combo_cooldown   = 22
-            self.swing_cooldown        = 22
-        elif self.combo_timer > 0 or self.combo_step != 3:
+            fin_data = combo_step_data(weapon, self.combo_step)
+            recovery = fin_data["cooldown"]
+            self.post_combo_cooldown   = recovery
+            self.swing_cooldown        = recovery
+        elif self.combo_timer > 0 or not is_finisher(weapon, self.combo_step):
             self._post_combo_triggered = False
 
         # Unlock facing when done
@@ -449,14 +496,17 @@ class Player:
         # Buffered input
         if self.combo_buffered and self.combo_timer == 0:
             self.combo_buffered = False
-            if (self.stamina >= STAMINA_SWORD and self.can_attack
+            stam_cost = weapon["stamina_cost"]
+            if (self.stamina >= stam_cost and self.can_attack
                     and self.dodge_timer == 0):
-                self.combo_step        = (self.combo_step % 3) + 1
-                self.combo_timer       = 10
-                self.combo_window      = 28
+                next_s    = (self.combo_step % n_combo) + 1
+                next_d    = combo_step_data(weapon, next_s)
+                self.combo_step        = next_s
+                self.combo_timer       = next_d["swing_frames"]
+                self.combo_window      = next_d["window"]
                 self.combo_reset_timer = 0
                 self.is_dash_strike    = False
-                self.stamina          -= STAMINA_SWORD
+                self.stamina          -= stam_cost
                 self.stamina_delay     = STAMINA_DELAY
                 self.hit_ids           = set()
                 self.lock_fx           = self.fx
@@ -476,11 +526,23 @@ class Player:
         self.hit_flash_timer = 8
         return True
 
-    def handle_block(self, from_x, from_y, stamina_cost=None):
+    def handle_block(self, from_x, from_y, stamina_cost=None, can_parry=True):
+        stats = self._block_stats()
+        if not stats:
+            return False
         if stamina_cost is None:
-            stamina_cost = STAMINA_SHIELD
+            stamina_cost = stats[0]  # block stamina cost
         if self.shield_broken:
             return False
+
+        # Parry: block pressed within the parry window → no stamina cost, stagger enemy
+        if can_parry and self.parry_timer > 0:
+            self.parry_timer = 0
+            self.stamina_delay = STAMINA_DELAY
+            self.scale_x = 1.3; self.scale_y = 0.7
+            return "parry"
+
+        # Normal block
         if self.stamina >= stamina_cost:
             self.stamina      -= stamina_cost
             self.stamina_delay = STAMINA_DELAY
@@ -489,7 +551,7 @@ class Player:
             self.flinch_dy    = kny * 3.5
             self.flinch_timer = 6
             self.scale_x = 0.85; self.scale_y = 1.2
-            return True
+            return "block"
         else:
             self.stamina           = 0
             self.guard_break_timer = GUARD_BREAK_TIMER
@@ -507,33 +569,37 @@ class Player:
         hits = []
         if self.combo_timer <= 0: return hits
 
-        fh   = math.degrees(math.atan2(self.fy, self.fx))
-        step = self.combo_step
-        prog = ease_in_out(1.0 - self.combo_timer / 10)
+        weapon = self._weapon()
+        step   = self.combo_step
+        sdata  = combo_step_data(weapon, step)
+        fh     = math.degrees(math.atan2(self.fy, self.fx))
+        prog   = ease_in_out(1.0 - self.combo_timer / sdata["swing_frames"])
 
-        base_damage = PLAYER_DAMAGE + get_bonus_damage(self.save)
+        base_damage = weapon["damage"] + get_bonus_damage(self.save)
         if self.has_item("fire_damage") or self.has_active_effect("fire_potion"):
             base_damage *= 1.25
         if self.has_item("berserker"):
             hp_ratio = max(0.0, 1.0 - self.hp / self.hp_max)
             base_damage *= (1.0 + hp_ratio * 0.8)
 
-        if step == 1:
-            reach     = SWORD_REACH
-            swing_h   = fh - 60 + prog * 120
-            tolerance = 42
-            damage    = base_damage
-        elif step == 2:
-            reach     = SWORD_REACH
-            swing_h   = fh + 60 - prog * 120
-            tolerance = 42
-            damage    = base_damage
-        else:
-            reach     = SWORD_REACH * (1.5 if self.is_dash_strike else 1.3)
-            swing_h   = fh
-            tolerance = 28
-            finisher_mult = 2.5 * (1.5 if self.has_item("combo_master") else 1.0)
-            damage = base_damage * (1.8 if self.is_dash_strike else finisher_mult)
+        reach     = weapon["reach"] * sdata.get("reach_mult", 1.0)
+        if self.is_dash_strike and is_finisher(weapon, step):
+            reach *= 1.15  # extra reach on dash-strike finisher
+        tolerance = sdata["tolerance"]
+        arc       = sdata["arc"]
+        anim      = sdata["anim"]
+
+        # Calculate swing heading based on animation type
+        swing_h = self._calc_swing_heading(fh, anim, arc, prog)
+
+        # Damage
+        damage = base_damage * sdata["damage_mult"]
+        if is_finisher(weapon, step) and self.has_item("combo_master"):
+            damage *= 1.5
+        if self.is_dash_strike and is_finisher(weapon, step):
+            damage = base_damage * 1.8  # dash-strike finisher override
+
+        kb = weapon["knockback"] * sdata.get("knockback_mult", 1.0)
 
         for v in targets:
             if v.id in self.hit_ids: continue
@@ -545,13 +611,27 @@ class Player:
                     kb_rad = math.radians(swing_h)
                     hits.append((v, damage, math.cos(kb_rad), math.sin(kb_rad)))
         return hits
+
+    def _calc_swing_heading(self, fh, anim, arc, prog):
+        """Calculate the current swing angle based on animation type."""
+        half = arc / 2
+        if anim == "sweep_right":
+            return fh - half + prog * arc
+        elif anim == "sweep_left":
+            return fh + half - prog * arc
+        elif anim == "wide_sweep":
+            return fh - half + prog * arc
+        elif anim in ("thrust", "stab", "overhead"):
+            return fh
+        return fh
     
     def charge_hits(self, targets):
         """Hit detection during the charge dash itself."""
         if self.charge_timer <= 0:
             return []
         hits = []
-        base_damage = (PLAYER_DAMAGE + get_bonus_damage(self.save)) * 1.4
+        weapon = self._weapon()
+        base_damage = (weapon["damage"] + get_bonus_damage(self.save)) * weapon["charge_damage_mult"]
         reach = 52
         for v in targets:
             if v.id in self.hit_ids:
@@ -572,6 +652,9 @@ class Player:
         rw   = max(6, int(r * self.scale_x))
         rh_s = max(6, int(r * self.scale_y))
 
+        weapon = self._weapon()
+        shield = self._shield()
+
         knip       = self.flinch_timer > 0 and (self.flinch_timer // 4) % 2 == 0
         guard_knip = self.guard_break_timer > 0 and (self.guard_break_timer // 3) % 2 == 0
 
@@ -591,8 +674,9 @@ class Player:
         # Finisher charge glow
         fw = self.finisher_windup
         if fw > 0:
-            WINDUP     = 16
-            charge     = max(0.0, 1.0 - fw / WINDUP)
+            fin_data   = combo_step_data(weapon, combo_length(weapon))
+            windup_max = fin_data.get("windup", 16)
+            charge     = max(0.0, 1.0 - fw / windup_max)
             glow_r     = max(4, int(18 + charge * 14))
             glow_alpha = int(max(0, min(255, charge * 220)))
             puls       = abs(math.sin(fw * 0.6))
@@ -602,34 +686,45 @@ class Player:
                                glow_r, max(2, int(charge * 6)))
             surface.blit(gs, (sx - glow_r - 2, sy - glow_r - 2))
 
-        fh = math.degrees(math.atan2(self.fy, self.fx))
+        fh  = math.degrees(math.atan2(self.fy, self.fx))
+        w_color     = weapon["color"]
+        w_color_tip = weapon["color_tip"]
 
-        if self.combo_timer > 0:
-            prog = ease_in_out(1.0 - self.combo_timer / 10)
-            step = self.combo_step
-            if step == 1:
-                zh_start = fh - 60; zh_end = fh + 60
-                zh       = zh_start + prog * 120
-                reach_t  = SWORD_REACH
-            elif step == 2:
-                zh_start = fh + 60; zh_end = fh - 60
-                zh       = zh_start - prog * 120
-                reach_t  = SWORD_REACH
-            else:
-                zh_start = zh_end = zh = fh
-                reach_t  = SWORD_REACH * (1.5 if self.is_dash_strike else 1.3)
+        # Charge visual — weapon thrust forward
+        if self.charge_timer > 0:
+            reach_c = 55 + (CHARGE_FRAMES - self.charge_timer) * 3
+            ex = sx + int(self.fx * reach_c)
+            ey = sy + int(self.fy * reach_c)
+            pygame.draw.line(surface, (255, 240, 120), (sx, sy), (ex, ey), 6)
+            pygame.draw.circle(surface, (255, 255, 180), (ex, ey), 8)
 
-            rad = math.radians(zh)
+        elif self.combo_timer > 0:
+            step  = self.combo_step
+            sdata = combo_step_data(weapon, step)
+            prog  = ease_in_out(1.0 - self.combo_timer / sdata["swing_frames"])
+            arc   = sdata["arc"]
+            anim  = sdata["anim"]
+            reach_t = weapon["reach"] * sdata.get("reach_mult", 1.0)
+            if self.is_dash_strike and is_finisher(weapon, step):
+                reach_t *= 1.15
+
+            half    = arc / 2
+            zh      = self._calc_swing_heading(fh, anim, arc, prog)
+            rad     = math.radians(zh)
+
+            # Weapon line
             ex  = sx + math.cos(rad) * reach_t
             ey  = sy + math.sin(rad) * reach_t
-            lkl = (255, 220, 50) if self.is_dash_strike else C_SWORD
+            lkl = (255, 220, 50) if self.is_dash_strike else w_color
             pygame.draw.line(surface, lkl, (sx, sy), (int(ex), int(ey)),
                              6 if self.is_dash_strike else 5)
-            tkl = (255, 255, 100) if self.is_dash_strike else (240, 240, 255)
+            tkl = (255, 255, 100) if self.is_dash_strike else w_color_tip
             pygame.draw.circle(surface, tkl, (int(ex), int(ey)),
                                7 if self.is_dash_strike else 5)
 
-            if step != 3 and prog > 0.05:
+            # Trail effects based on animation type
+            if anim in ("sweep_right", "sweep_left", "wide_sweep") and prog > 0.05:
+                zh_start = self._calc_swing_heading(fh, anim, arc, 0.0)
                 n_pts  = 14
                 swoosh = []
                 for i in range(n_pts + 1):
@@ -647,7 +742,9 @@ class Player:
                     pygame.draw.circle(seg, (*kl_sw, alpha), (width + 2, width + 2), width)
                     surface.blit(seg, (int(swoosh[i][0]) - width - 2,
                                        int(swoosh[i][1]) - width - 2))
-            elif step == 3:
+
+            elif anim in ("thrust", "stab"):
+                # Forward thrust trail
                 flits_kl = (255, 220, 50) if self.is_dash_strike else (255, 255, 200)
                 for dist_l in range(0, int(reach_t), 7):
                     alpha = int(200 * (1 - dist_l / reach_t) * prog)
@@ -658,39 +755,44 @@ class Player:
                     seg   = pygame.Surface((r_l * 2 + 2, r_l * 2 + 2), pygame.SRCALPHA)
                     pygame.draw.circle(seg, (*flits_kl, alpha), (r_l + 1, r_l + 1), r_l)
                     surface.blit(seg, (int(px2) - r_l - 1, int(py2) - r_l - 1))
-         # Charge visual — sword thrust forward
-        if self.charge_timer > 0:
-            reach_c = 55 + (CHARGE_FRAMES - self.charge_timer) * 3
-            ex = sx + int(self.fx * reach_c)
-            ey = sy + int(self.fy * reach_c)
-            pygame.draw.line(surface, (255, 240, 120), (sx, sy), (ex, ey), 6)
-            pygame.draw.circle(surface, (255, 255, 180), (ex, ey), 8)
-        elif self.combo_timer > 0:
-            prog = ease_in_out(1.0 - self.combo_timer / 10)
-            step = self.combo_step
-            if step == 1:
-                zh_start = fh - 60; zh_end = fh + 60
-                zh       = zh_start + prog * 120
-                reach_t  = SWORD_REACH
-            elif step == 2:
-                zh_start = fh + 60; zh_end = fh - 60
-                zh       = zh_start - prog * 120
-                reach_t  = SWORD_REACH
-            else:
-                zh_start = zh_end = zh = fh
-                reach_t  = SWORD_REACH * (1.5 if self.is_dash_strike else 1.3)
-            # ... rest van de combo tekencode die al in jouw bestand staat
-        else:
-            rh2 = math.radians(fh + 40)
-            pygame.draw.line(surface, C_SWORD, (sx, sy),
-                (int(sx + math.cos(rh2) * 22), int(sy + math.sin(rh2) * 22)), 3)
 
-        if self._has_shield() and block:
-            sh  = math.radians(fh - 35)
-            bsx = int(sx + math.cos(sh) * 22)
-            bsy = int(sy + math.sin(sh) * 22)
-            pygame.draw.circle(surface, C_SHIELD, (bsx, bsy), 13)
-            pygame.draw.circle(surface, (230, 185, 90), (bsx, bsy), 13, 2)
+            elif anim == "overhead":
+                # Overhead smash — impact ring effect
+                impact_r = int(reach_t * 0.6 * prog)
+                if impact_r > 4:
+                    impact_alpha = int(180 * (1 - prog * 0.5))
+                    gs = pygame.Surface((impact_r * 2 + 4, impact_r * 2 + 4), pygame.SRCALPHA)
+                    pygame.draw.circle(gs, (255, 200, 100, impact_alpha),
+                                       (impact_r + 2, impact_r + 2), impact_r, 3)
+                    surface.blit(gs, (int(ex) - impact_r - 2, int(ey) - impact_r - 2))
+
+        else:
+            # Idle weapon position
+            rh2 = math.radians(fh + 40)
+            idle_reach = min(22, weapon["reach"] * 0.25)
+            pygame.draw.line(surface, w_color, (sx, sy),
+                (int(sx + math.cos(rh2) * idle_reach), int(sy + math.sin(rh2) * idle_reach)), 3)
+
+        # Block visual
+        if block and self._can_block():
+            if shield:
+                sh  = math.radians(fh - 35)
+                bsx = int(sx + math.cos(sh) * 22)
+                bsy = int(sy + math.sin(sh) * 22)
+                s_color = shield["color"]
+                s_rim   = shield["color_rim"]
+                pygame.draw.circle(surface, s_color, (bsx, bsy), 13)
+                pygame.draw.circle(surface, s_rim, (bsx, bsy), 13, 2)
+            else:
+                # Weapon block: draw weapon held across body
+                bh = math.radians(fh - 50)
+                b_len = min(28, weapon["reach"] * 0.32)
+                bx1 = int(sx + math.cos(bh) * 10)
+                by1 = int(sy + math.sin(bh) * 10)
+                bx2 = int(sx + math.cos(bh) * (10 + b_len))
+                by2 = int(sy + math.sin(bh) * (10 + b_len))
+                pygame.draw.line(surface, w_color_tip, (bx1, by1), (bx2, by2), 4)
+                pygame.draw.line(surface, w_color, (bx1, by1), (bx2, by2), 2)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -710,15 +812,11 @@ class Enemy:
         self.type = enemy_type
         self.id   = Enemy.new_id()
         self.damage_mult = damage_multiplier
+        self.edef = get_enemy(enemy_type)
 
-        if enemy_type == "wolf":
-            self.hp_max = ENEMY_BASE_HP * hp_multiplier * 0.8
-            self.radius = 13
-            self.speed  = ENEMY_SPEED * 1.1
-        else:
-            self.hp_max = ENEMY_BASE_HP * hp_multiplier
-            self.radius = 14
-            self.speed  = ENEMY_SPEED
+        self.hp_max = ENEMY_BASE_HP * hp_multiplier * self.edef["hp_mult"]
+        self.radius = self.edef["radius"]
+        self.speed  = ENEMY_SPEED * self.edef["speed_mult"]
 
         self.hp = self.hp_max
         self.fx = 0.0; self.fy = 1.0
@@ -739,12 +837,20 @@ class Enemy:
         self.wolf_glow       = 0.0
         self.wolf_hit_player = False
 
+        # Ranged state
+        self.aim_timer   = 0
+        self.aim_dx      = 0.0; self.aim_dy = 0.0
+        self.salvo_count = 0
+        self.salvo_timer = 0
+
         # Aggro
         self.aggro        = False
-        self.aggro_range  = 200 if enemy_type == "wolf" else 260
+        self.aggro_range  = self.edef["aggro_range"]
         self.group_id     = 0
         self.patrol_angle = random.uniform(0, math.pi * 2)
         self.patrol_timer = random.randint(0, 120)
+        # Wolves sleep until aggroed; other enemies patrol
+        self.sleeping     = (self.edef["ai"] == "wolf")
 
         # Burning DoT
         self.burning_timer = 0
@@ -761,14 +867,15 @@ class Enemy:
         self.hit_stop = 4
         return self.hp <= 0
 
-    def take_damage_swing(self, damage, kb_nx, kb_ny):
+    def take_damage_swing(self, damage, kb_nx, kb_ny, hitstop=5, hit_squash=None):
         self.hp -= damage
-        kb = KNOCKBACK * (0.4 if self.type == "wolf" else 1.0)
+        kb = KNOCKBACK * self.edef["kb_mult"]
         self.flinch_timer = FLINCH_ENEMY
         self.flinch_dx    = kb_nx * kb
         self.flinch_dy    = kb_ny * kb
-        self.scale_x = 1.6; self.scale_y = 0.5
-        self.hit_stop = 5
+        sq = hit_squash or (1.6, 0.5)
+        self.scale_x = sq[0]; self.scale_y = sq[1]
+        self.hit_stop = hitstop
         return self.hp <= 0
 
     def take_damage_knockback(self, damage, from_x, from_y, knockback):
@@ -796,13 +903,15 @@ class Enemy:
 
         if not self.aggro:
             if dist < self.aggro_range or self.flinch_timer > 0:
-                self.aggro = True
+                self.aggro    = True
+                self.sleeping = False
             else:
                 self._update_patrol(is_blocked)
                 if self.anim_timer      > 0: self.anim_timer      -= 1
                 if self.attack_cooldown > 0: self.attack_cooldown -= 1
-                self.scale_x = lerp(self.scale_x, 1.0, 0.1)
-                self.scale_y = lerp(self.scale_y, 1.0, 0.1)
+                if not self.sleeping:
+                    self.scale_x = lerp(self.scale_x, 1.0, 0.1)
+                    self.scale_y = lerp(self.scale_y, 1.0, 0.1)
                 return None
 
         if self.anim_timer      > 0: self.anim_timer      -= 1
@@ -829,13 +938,14 @@ class Enemy:
         arrow_dmg  = ARROW_DAMAGE       * self.damage_mult
 
         # ── Wolf AI ───────────────────────────────────────────────────────────
-        if self.type == "wolf":
-            WOLF_DISTANCE = 180
-            WOLF_WINDUP_T = 30
-            WOLF_DASH_T   = 28
-            WOLF_REST_T   = 100
-            WOLF_SPEED    = DODGE_SPEED * 1.9
-            WOLF_DAMAGE   = ENEMY_MELEE_DAMAGE * 1.2 * self.damage_mult
+        if self.edef["ai"] == "wolf":
+            ed = self.edef
+            WOLF_DISTANCE = ed["standoff_dist"]
+            WOLF_WINDUP_T = ed["windup_frames"]
+            WOLF_DASH_T   = ed["dash_frames"]
+            WOLF_REST_T   = ed["recovery_frames"]
+            WOLF_SPEED    = DODGE_SPEED * ed["dash_speed_mult"]
+            WOLF_DAMAGE   = ENEMY_MELEE_DAMAGE * ed["damage_mult"] * self.damage_mult
 
             if self.wolf_timer > 0: self.wolf_timer -= 1
 
@@ -879,12 +989,12 @@ class Enemy:
                               self.y - self.wolf_dash_dir_y * 40,
                               WOLF_DAMAGE)
                 if self.wolf_timer == 0:
-                    self.wolf_state      = "herstel"
+                    self.wolf_state      = "recovery"
                     self.wolf_timer      = WOLF_REST_T
                     self.attack_cooldown = WOLF_REST_T
                     self.scale_x = 1.4; self.scale_y = 0.7
 
-            elif self.wolf_state == "herstel":
+            elif self.wolf_state == "recovery":
                 self.wolf_glow = 0.0
                 if dist < WOLF_DISTANCE:
                     self._move(-self.fx * self.speed, -self.fy * self.speed, is_blocked)
@@ -892,15 +1002,16 @@ class Enemy:
                     self.wolf_state = "afstand"
 
         # ── Melee AI ──────────────────────────────────────────────────────────
-        elif self.type == "melee":
+        elif self.edef["ai"] == "melee":
+            ed = self.edef
             if dist > self.radius + 10:
                 self.scale_x = lerp(self.scale_x, 1.2, 0.1)
                 self.scale_y = lerp(self.scale_y, 0.85, 0.1)
                 self._move(self.fx * self.speed, self.fy * self.speed, is_blocked)
-            if dist < reach and self.attack_cooldown <= 0:
-                self.anim_timer      = 20
-                self.attack_cooldown = acd_dur
-                self.windup_timer    = 6
+            if dist < ed["reach"] and self.attack_cooldown <= 0:
+                self.anim_timer      = ed["anim_frames"]
+                self.attack_cooldown = ed["attack_cooldown"]
+                self.windup_timer    = ed["windup_frames"]
                 self.windup_dx = -self.fx * 1.5
                 self.windup_dy = -self.fy * 1.5
                 self.scale_x = 0.7; self.scale_y = 1.4
@@ -908,18 +1019,13 @@ class Enemy:
                     attack = ("melee", self.x, self.y, melee_dmg)
 
         # ── Ranged AI ─────────────────────────────────────────────────────────
-        else:
-            FLEE_DIST      = 130
-            TARGET_DIST    = 240
-            AIM_FRAMES     = 35
-            SALVO_SIZE     = 3
-            SALVO_INTERVAL = 8
-
-            if not hasattr(self, 'aim_timer'):   self.aim_timer = 0
-            if not hasattr(self, 'aim_dx'):
-                self.aim_dx = self.fx; self.aim_dy = self.fy
-            if not hasattr(self, 'salvo_count'): self.salvo_count = 0
-            if not hasattr(self, 'salvo_timer'): self.salvo_timer = 0
+        elif self.edef["ai"] == "ranged":
+            ed = self.edef
+            FLEE_DIST      = ed["flee_dist"]
+            TARGET_DIST    = ed["target_dist"]
+            AIM_FRAMES     = ed["aim_frames"]
+            SALVO_SIZE     = ed["salvo_size"]
+            SALVO_INTERVAL = ed["salvo_interval"]
 
             if dist < FLEE_DIST and self.aim_timer == 0:
                 vx = -self.fx * 1.4 + self.fy * 0.5
@@ -977,6 +1083,11 @@ class Enemy:
         return attack
 
     def _update_patrol(self, is_blocked):
+        if self.sleeping:
+            # Sleeping wolves stay still and flat
+            self.scale_x = lerp(self.scale_x, 1.4, 0.05)
+            self.scale_y = lerp(self.scale_y, 0.6, 0.05)
+            return
         self.patrol_timer -= 1
         if self.patrol_timer <= 0:
             self.patrol_angle += random.uniform(-1.2, 1.2)
@@ -1034,7 +1145,7 @@ class Enemy:
         pygame.draw.circle(surface, C_EYE,
             (int(sx + self.fx * int(r * 0.6)), int(sy + self.fy * int(r * 0.6))), 5)
 
-        if not self.aggro:
+        if self.sleeping:
             bob = int(math.sin(pygame.time.get_ticks() * 0.0015) * 5)
             zs  = pygame.font.Font(None, 22).render("z z z", True, (160, 185, 255))
             surface.blit(zs, (sx - zs.get_width() // 2, sy - rh_s - 20 + bob))
@@ -1075,16 +1186,14 @@ class Enemy:
             bx = int(sx + math.cos(bh) * 18); by = int(sy + math.sin(bh) * 18)
             pygame.draw.line(surface, (140, 100, 50), (sx, sy), (bx, by), 3)
             pygame.draw.circle(surface, (160, 120, 60), (bx, by), 5)
-            aim_t = getattr(self, 'aim_timer', 0)
+            aim_t = self.aim_timer
             if aim_t > 0:
-                AIM_FRAMES = 35
+                AIM_FRAMES = self.edef.get("aim_frames", 35)
                 charge   = 1.0 - aim_t / AIM_FRAMES
                 puls     = abs(math.sin(aim_t * 0.25))
                 aim_kl   = (255, int(80 - charge * 60), int(80 - charge * 60))
                 aim_len  = int(80 + charge * 80)
-                aim_rad  = math.atan2(
-                    self.aim_dy if hasattr(self, 'aim_dy') else self.fy,
-                    self.aim_dx if hasattr(self, 'aim_dx') else self.fx)
+                aim_rad  = math.atan2(self.aim_dy, self.aim_dx)
                 for seg in range(0, aim_len, 6):
                     t_seg = seg / aim_len
                     alpha = int((0.3 + 0.7 * charge) * (1 - t_seg * 0.7) * 220 * puls)
@@ -1101,38 +1210,15 @@ class Enemy:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class Boss:
-    MAX_HP    = 400.0
-    RADIUS    = 32
-    SPEED     = 1.6
-    COLOR_P1  = (55,  90,  45)
-    COLOR_P2  = (110, 30,  20)
-    COLOR_EYE = (200, 80, 255)
-
-    MELEE_WINDUP  = 22
-    MELEE_FRAMES  = 16
-    MELEE_ACD     = 90
-    MELEE_DAMAGE  = 35.0
-    MELEE_RANGE   = 68
-
-    CHARGE_WINDUP = 38
-    CHARGE_T      = 22
-    CHARGE_SPEED  = DODGE_SPEED * 2.2
-    CHARGE_DAMAGE = 28.0
-    CHARGE_ACD    = 150
-
-    STAMP_WINDUP  = 30
-    STAMP_DAMAGE  = 30.0
-    STAMP_MAX_R   = 180
-    STAMP_SPEED   = 4.5
-    STAMP_ACD     = 200
-
-    def __init__(self, x, y, damage_mult=1.0):
+    def __init__(self, x, y, damage_mult=1.0, boss_type="forest_warrior"):
         self.x = float(x); self.y = float(y)
         self.type        = "boss"
+        self.boss_type   = boss_type
+        self.bdef        = get_boss(boss_type)
         self.id          = Enemy.new_id()
-        self.hp_max      = self.MAX_HP * damage_mult
+        self.hp_max      = self.bdef["hp"] * damage_mult
         self.hp          = self.hp_max
-        self.radius      = self.RADIUS
+        self.radius      = self.bdef["radius"]
         self.damage_mult = damage_mult
 
         self.fx = 0.0; self.fy = 1.0
@@ -1151,29 +1237,39 @@ class Boss:
 
         self.shockwave_rings = []
 
-        self.phase2         = False
-        self.phase2_trigger = False
+        # Jump attack state
+        self.jump_target_x = 0.0; self.jump_target_y = 0.0
+        self.jump_origin_x = 0.0; self.jump_origin_y = 0.0
+        self.jump_height   = 0.0   # visual height (0 = ground)
+        self.jump_landed   = False
+
         self.glow           = 0.0
 
         self.aggro     = True
         self.group_id  = 0
         self.burning_timer = 0; self.burning_tick = 0
 
+        # Cache attack data for quick access
+        self._atk = self.bdef["attacks"]
+
     def take_damage(self, damage, from_x, from_y):
+        if self.state == "jump_air":
+            return False  # invulnerable while airborne
         self.hp -= damage
-        knx, kny = normalize(self.x - from_x, self.y - from_y)
-        self.flinch_timer = FLINCH_ENEMY
-        self.flinch_dx    = knx * KNOCKBACK * 0.5
-        self.flinch_dy    = kny * KNOCKBACK * 0.5
-        self.scale_x = 1.5; self.scale_y = 0.6
-        self.hit_stop = 5
-        if not self.phase2 and self.hp <= self.hp_max * 0.5:
-            self.phase2         = True
-            self.phase2_trigger = True
+        # Boss is unstoppable — no flinch, no knockback, only visual feedback
+        self.flinch_timer = 0
+        self.flinch_dx    = 0.0
+        self.flinch_dy    = 0.0
+        self.scale_x = 1.15; self.scale_y = 0.88  # subtle squash (visual only)
+        self.hit_stop = 3
         return self.hp <= 0
 
-    def take_damage_swing(self, damage, kb_nx, kb_ny):
-        return self.take_damage(damage, self.x - kb_nx * 50, self.y - kb_ny * 50)
+    def take_damage_swing(self, damage, kb_nx, kb_ny, hitstop=5, hit_squash=None):
+        self.hit_stop = hitstop
+        result = self.take_damage(damage, self.x - kb_nx * 50, self.y - kb_ny * 50)
+        if hit_squash:
+            self.scale_x = hit_squash[0]; self.scale_y = hit_squash[1]
+        return result
 
     def take_damage_knockback(self, damage, from_x, from_y, knockback):
         return self.take_damage(damage, from_x, from_y)
@@ -1199,111 +1295,149 @@ class Boss:
             self._move(self.flinch_dx * (self.flinch_timer / FLINCH_ENEMY),
                        self.flinch_dy * (self.flinch_timer / FLINCH_ENEMY), is_blocked)
 
-        phase2_trigger = self.phase2_trigger
-        if self.phase2_trigger:
-            self.phase2_trigger = False
-            self.state       = "fase2_intro"
-            self.state_timer = 50
-            self.scale_x = 1.8; self.scale_y = 0.3
-
         self.scale_x = lerp(self.scale_x, 1.0, 0.1)
         self.scale_y = lerp(self.scale_y, 1.0, 0.1)
-        self.glow    = lerp(self.glow, 0.7 if self.phase2 else 0.0,
-                            0.03 if self.phase2 else 0.05)
+        self.glow    = lerp(self.glow, 0.0, 0.05)
 
-        spd    = self.SPEED * (1.3 if self.phase2 else 1.0)
+        bd     = self.bdef
+        spd    = bd["speed"]
         attack = None
 
-        if self.state == "fase2_intro":
-            if self.state_timer == 0:
-                self.state = "volgen"
-            return attack, phase2_trigger
-
-        elif self.state == "volgen":
-            if dist > self.MELEE_RANGE + 15:
+        if self.state == "volgen":
+            if dist > self._atk["melee"]["reach"] + 15:
                 self.scale_x = lerp(self.scale_x, 1.15, 0.08)
                 self.scale_y = lerp(self.scale_y, 0.88, 0.08)
                 self._move(self.fx * spd, self.fy * spd, is_blocked)
             if self.attack_cooldown <= 0:
-                if dist > 180 and self.phase2 and random.random() < 0.4:
-                    self._start_stamp()
-                elif dist > 130 and random.random() < 0.45:
-                    self._start_charge()
-                else:
-                    self._start_melee()
+                self._choose_attack(dist)
 
         elif self.state == "melee_windup":
+            ma = self._atk["melee"]
             self._move(-self.fx * 0.6, -self.fy * 0.6, is_blocked)
             self.scale_x = lerp(self.scale_x, 0.7,  0.12)
             self.scale_y = lerp(self.scale_y, 1.45, 0.12)
             if self.state_timer == 0:
-                self.state       = "melee_aanval"
-                self.state_timer = self.MELEE_FRAMES
-                self.anim_timer  = self.MELEE_FRAMES
+                self.state       = "melee_attack"
+                self.state_timer = ma["frames"]
+                self.anim_timer  = ma["frames"]
                 self.scale_x = 1.6; self.scale_y = 0.5
-                if player_flinch_cd <= 0 and dist < self.MELEE_RANGE + 25:
+                if player_flinch_cd <= 0 and dist < ma["reach"] + 25:
                     attack = ("melee", self.x, self.y,
-                              self.MELEE_DAMAGE * self.damage_mult)
+                              ma["damage"] * self.damage_mult)
 
-        elif self.state == "melee_aanval":
+        elif self.state == "melee_attack":
+            ma = self._atk["melee"]
             if self.state_timer == 0:
-                self.state       = "herstel"
-                self.state_timer = 35
-                self.attack_cooldown = int(self.MELEE_ACD * (0.75 if self.phase2 else 1.0))
+                cd_mult = 1.0
+                self.state       = "recovery"
+                self.state_timer = ma["recovery"]
+                self.attack_cooldown = int(ma["cooldown"] * cd_mult)
 
         elif self.state == "charge_windup":
+            ca = self._atk["charge"]
+            windup_total = self._charge_windup_frames()
             self._move(-self.fx * 0.5, -self.fy * 0.5, is_blocked)
             self.scale_x = lerp(self.scale_x, 0.6, 0.12)
             self.scale_y = lerp(self.scale_y, 1.6, 0.12)
-            if self.state_timer == self.CHARGE_WINDUP // 2:
-                self.charge_dx         = self.fx * self.CHARGE_SPEED
-                self.charge_dy         = self.fy * self.CHARGE_SPEED
+            if self.state_timer == windup_total // 2:
+                self.charge_dx         = self.fx * ca["speed"]
+                self.charge_dy         = self.fy * ca["speed"]
                 self.charge_hit_player = False
             if self.state_timer == 0:
                 if self.charge_dx == 0 and self.charge_dy == 0:
-                    self.charge_dx         = self.fx * self.CHARGE_SPEED
-                    self.charge_dy         = self.fy * self.CHARGE_SPEED
+                    self.charge_dx         = self.fx * ca["speed"]
+                    self.charge_dy         = self.fy * ca["speed"]
                     self.charge_hit_player = False
                 self.state       = "charge"
-                self.state_timer = self.CHARGE_T
+                self.state_timer = ca["duration"]
                 self.scale_x = 1.7; self.scale_y = 0.45
 
         elif self.state == "charge":
+            ca = self._atk["charge"]
             self._move(self.charge_dx, self.charge_dy, is_blocked)
-            if (dist < self.RADIUS + 30 and not self.charge_hit_player
+            if (dist < self.radius + 30 and not self.charge_hit_player
                     and player_flinch_cd <= 0):
                 self.charge_hit_player = True
                 attack = ("charge", self.x, self.y,
-                          self.CHARGE_DAMAGE * self.damage_mult)
+                          ca["damage"] * self.damage_mult)
             if self.state_timer == 0:
-                self.state       = "herstel"
-                self.state_timer = 50
-                self.attack_cooldown = int(self.CHARGE_ACD * (0.75 if self.phase2 else 1.0))
+                cd_mult = 1.0
+                self.state       = "recovery"
+                self.state_timer = ca["recovery"]
+                self.attack_cooldown = int(ca["cooldown"] * cd_mult)
 
         elif self.state == "stamp_windup":
-            self.scale_x = lerp(self.scale_x, 0.75, 0.1)
-            self.scale_y = lerp(self.scale_y, 1.5,  0.1)
+            sa = self._atk["stamp"]
+            windup_t = sa["windup"]
+            prog = 1.0 - self.state_timer / max(1, windup_t)
+            # Boss raises up (stretches tall)
+            self.scale_x = lerp(self.scale_x, 0.65, 0.12)
+            self.scale_y = lerp(self.scale_y, 1.6,  0.12)
+            # Store stamp warning progress for draw
+            self._stamp_warn_prog = prog
             if self.state_timer == 0:
-                self.state       = "stamp_actief"
-                self.state_timer = 10
+                self.state       = "stamp_active"
+                self.state_timer = sa["active"]
                 self.scale_x = 2.0; self.scale_y = 0.3
+                self._stamp_warn_prog = 0.0
                 self.shockwave_rings = [{"x": self.x, "y": self.y, "r": 0,
-                                         "max_r": self.STAMP_MAX_R, "alpha": 220}]
+                                         "max_r": sa["max_radius"], "alpha": 220}]
 
-        elif self.state == "stamp_actief":
+        elif self.state == "stamp_active":
+            sa = self._atk["stamp"]
             if self.state_timer == 0:
-                self.state       = "herstel"
-                self.state_timer = 45
-                self.attack_cooldown = self.STAMP_ACD
+                self.state       = "recovery"
+                self.state_timer = sa["recovery"]
+                self.attack_cooldown = sa["cooldown"]
 
-        elif self.state == "herstel":
+        elif self.state == "jump_windup":
+            # Crouching before jump — squash down
+            self.scale_x = lerp(self.scale_x, 1.4, 0.12)
+            self.scale_y = lerp(self.scale_y, 0.5, 0.12)
+            if self.state_timer == 0:
+                ja = self._atk["jump"]
+                self.state       = "jump_air"
+                self.state_timer = ja["airtime"]
+                self.scale_x = 0.6; self.scale_y = 1.5
+                self.jump_landed = False
+
+        elif self.state == "jump_air":
+            # Boss is in the air — parabolic height curve
+            ja       = self._atk["jump"]
+            progress = 1.0 - self.state_timer / max(1, ja["airtime"])
+            self.jump_height = math.sin(progress * math.pi) * 120  # peak at midpoint
+            # Lerp position toward target
+            t = progress
+            self.x = lerp(self.jump_origin_x, self.jump_target_x, t)
+            self.y = lerp(self.jump_origin_y, self.jump_target_y, t)
+            if self.state_timer == 0:
+                # Land!
+                self.jump_height = 0.0
+                self.jump_landed = True
+                self.state       = "jump_land"
+                self.state_timer = ja["stun_duration"]
+                self.scale_x = 2.0; self.scale_y = 0.3
+                attack = ("jump_land", self.x, self.y,
+                          ja["land_damage"] * self.damage_mult)
+
+        elif self.state == "jump_land":
+            # Boss is stunned after landing — punish window
+            ja = self._atk["jump"]
+            self.jump_height = 0.0
+            if self.state_timer == 0:
+                cd_mult = 1.0
+                self.state       = "recovery"
+                self.state_timer = 20
+                self.attack_cooldown = int(ja["cooldown"] * cd_mult)
+
+        elif self.state == "recovery":
             if dist < 120:
                 self._move(-self.fx * spd * 0.6, -self.fy * spd * 0.6, is_blocked)
             if self.state_timer == 0:
                 self.state = "volgen"
 
         for ring in self.shockwave_rings:
-            ring["r"]    += self.STAMP_SPEED
+            ring["r"]    += self._atk["stamp"]["ring_speed"]
             ring["alpha"] = max(0, int(ring["alpha"] * (1 - ring["r"] / ring["max_r"])))
         self.shockwave_rings = [rg for rg in self.shockwave_rings if rg["r"] < rg["max_r"]]
 
@@ -1315,20 +1449,51 @@ class Boss:
                 self.hp = max(0, self.hp - 8)
                 self.scale_x = 1.3; self.scale_y = 0.75
 
-        return attack, phase2_trigger
+        return attack, False
+
+    def _windup_mult(self):
+        return 1.0
+
+    def _choose_attack(self, dist):
+        for rule in self.bdef["attack_priority"]:
+            if rule.get("phase2_only", False):
+                continue  # phase2 removed — skip phase2-only attacks
+            if dist < rule.get("min_range", 0):
+                continue
+            if "max_range" in rule and dist > rule["max_range"]:
+                continue
+            if random.random() < rule["weight"]:
+                getattr(self, f"_start_{rule['attack']}")()
+                return
+        self._start_melee()
 
     def _start_melee(self):
         self.state       = "melee_windup"
-        self.state_timer = int(self.MELEE_WINDUP * (0.8 if self.phase2 else 1.0))
+        self.state_timer = int(self._atk["melee"]["windup"] * self._windup_mult())
 
     def _start_charge(self):
         self.state       = "charge_windup"
-        self.state_timer = int(self.CHARGE_WINDUP * (0.8 if self.phase2 else 1.0))
+        self.state_timer = self._charge_windup_frames()
         self.charge_dx   = 0.0; self.charge_dy = 0.0
+
+    def _charge_windup_frames(self):
+        return int(self._atk["charge"]["windup"] * self._windup_mult())
 
     def _start_stamp(self):
         self.state       = "stamp_windup"
-        self.state_timer = self.STAMP_WINDUP
+        self.state_timer = self._atk["stamp"]["windup"]
+
+    def _start_jump(self):
+        ja = self._atk["jump"]
+        self.state       = "jump_windup"
+        self.state_timer = int(ja["windup"] * self._windup_mult())
+        # Lock target at player's current position
+        self.jump_target_x = self.x + self.fx * 200  # will be overridden in update_boss
+        self.jump_target_y = self.y + self.fy * 200
+        self.jump_origin_x = self.x
+        self.jump_origin_y = self.y
+        self.jump_height   = 0.0
+        self.jump_landed   = False
 
     def _move(self, vx, vy, is_blocked):
         r  = self.radius - 2
@@ -1346,6 +1511,43 @@ class Boss:
         rw   = int(r * self.scale_x); rh = int(r * self.scale_y)
         rh_s = max(1, rh)
 
+        # ── Jump shadow at target ──────────────────────────────────
+        if self.state in ("jump_windup", "jump_air"):
+            ja  = self._atk["jump"]
+            tsx = int(self.jump_target_x - cam_x)
+            tsy = int(self.jump_target_y - cam_y)
+            if self.state == "jump_windup":
+                # Small pulsing indicator during windup
+                prog = 1.0 - self.state_timer / max(1, int(ja["windup"] * self._windup_mult()))
+                sr   = int(ja["land_radius"] * 0.3 * prog)
+                alpha = int(60 + prog * 80)
+            else:
+                # Growing shadow during airtime
+                prog  = 1.0 - self.state_timer / max(1, ja["airtime"])
+                sr    = int(ja["land_radius"] * (0.3 + 0.7 * prog))
+                alpha = int(80 + prog * 140)
+            if sr > 2:
+                ss = pygame.Surface((sr * 2 + 4, sr * 2 + 4), pygame.SRCALPHA)
+                pygame.draw.ellipse(ss, (200, 50, 30, alpha),
+                                    (2, sr // 2 + 2, sr * 2, sr))
+                # Danger ring
+                pygame.draw.ellipse(ss, (255, 80, 40, min(255, alpha + 40)),
+                                    (2, sr // 2 + 2, sr * 2, sr), 3)
+                surface.blit(ss, (tsx - sr - 2, tsy - sr // 2 - 2))
+
+        # ── Stunned stars during jump_land ─────────────────────────
+        if self.state == "jump_land":
+            ja = self._atk["jump"]
+            stun_prog = self.state_timer / max(1, ja["stun_duration"])
+            for i in range(3):
+                angle = pygame.time.get_ticks() * 0.005 + i * (math.pi * 2 / 3)
+                star_x = int(sx + math.cos(angle) * (r + 10))
+                star_y = int(sy - rh_s - 8 + math.sin(angle * 1.5) * 6)
+                star_a = int(200 * stun_prog)
+                if star_a > 10:
+                    pygame.draw.circle(surface, (255, 255, 100), (star_x, star_y), 4)
+                    pygame.draw.circle(surface, (255, 200, 50), (star_x, star_y), 2)
+
         for ring in self.shockwave_rings:
             rx = int(ring["x"] - cam_x); ry = int(ring["y"] - cam_y)
             if ring["alpha"] > 5:
@@ -1357,38 +1559,70 @@ class Boss:
                 surface.blit(rs, (rx - int(ring["r"]) - 2, ry - int(ring["r"]) - 2))
 
         if self.state == "charge_windup":
-            windup_total = int(self.CHARGE_WINDUP * (0.8 if self.phase2 else 1.0))
+            windup_total = self._charge_windup_frames()
             prog     = 1.0 - self.state_timer / max(1, windup_total)
-            line_len = int(120 * prog + 30)   # lijn zichtbaar vanaf frame 1
-            alpha    = int(60 + prog * 195)   # begint al zichtbaar
+            line_len = int(180 * prog + 40)
+            alpha    = int(60 + prog * 195)
             ex    = int(sx + self.fx * line_len)
             ey    = int(sy + self.fy * line_len)
             cs    = pygame.Surface((surface.get_width(), surface.get_height()),
                                    pygame.SRCALPHA)
+            # Wide danger zone stripe
+            perp_x = -self.fy; perp_y = self.fx
+            stripe_w = int(18 + prog * 14)  # grows wider
+            pts = [
+                (int(sx + perp_x * stripe_w), int(sy + perp_y * stripe_w)),
+                (int(sx - perp_x * stripe_w), int(sy - perp_y * stripe_w)),
+                (int(ex - perp_x * stripe_w), int(ey - perp_y * stripe_w)),
+                (int(ex + perp_x * stripe_w), int(ey + perp_y * stripe_w)),
+            ]
+            pygame.draw.polygon(cs, (255, 40, 10, int(alpha * 0.3)), pts)
+            # Center line
             pygame.draw.line(cs, (255, 60, 20, alpha), (sx, sy), (ex, ey), 5)
-            # Driehoek aan het einde als pijl
-            perp_x = -self.fy * 8; perp_y = self.fx * 8
+            # Arrow tip
+            ap = -self.fy * 10; bp = self.fx * 10
             tip = (ex, ey)
-            left  = (int(ex - self.fx * 18 + perp_x), int(ey - self.fy * 18 + perp_y))
-            right = (int(ex - self.fx * 18 - perp_x), int(ey - self.fy * 18 - perp_y))
+            left  = (int(ex - self.fx * 22 + ap), int(ey - self.fy * 22 + bp))
+            right = (int(ex - self.fx * 22 - ap), int(ey - self.fy * 22 - bp))
             pygame.draw.polygon(cs, (255, 80, 20, alpha), [tip, left, right])
             surface.blit(cs, (0, 0))
+
+        if self.state == "stamp_windup":
+            sa   = self._atk["stamp"]
+            prog = getattr(self, '_stamp_warn_prog', 0.0)
+            # Growing warning circle on ground
+            warn_r = int(sa["max_radius"] * prog)
+            if warn_r > 4:
+                alpha_w = int(40 + prog * 100)
+                ws = pygame.Surface((warn_r * 2 + 4, warn_r * 2 + 4), pygame.SRCALPHA)
+                pygame.draw.circle(ws, (255, 180, 30, alpha_w),
+                                   (warn_r + 2, warn_r + 2), warn_r)
+                pygame.draw.circle(ws, (255, 80, 20, min(255, alpha_w + 60)),
+                                   (warn_r + 2, warn_r + 2), warn_r, 3)
+                surface.blit(ws, (sx - warn_r - 2, sy - warn_r - 2))
+
+        # Apply jump height offset for airborne boss
+        body_sy = sy - int(self.jump_height)
 
         if self.glow > 0.05:
             glow_r = int(r * 1.8 + self.glow * 20)
             ga     = int(self.glow * 140)
             gs     = pygame.Surface((glow_r * 2 + 4, glow_r * 2 + 4), pygame.SRCALPHA)
             pygame.draw.circle(gs, (200, 40, 20, ga), (glow_r + 2, glow_r + 2), glow_r)
-            surface.blit(gs, (sx - glow_r - 2, sy - glow_r - 2))
+            surface.blit(gs, (sx - glow_r - 2, body_sy - glow_r - 2))
 
-        pygame.draw.ellipse(surface, C_SHADOW, (sx - rw + 4, sy + rh_s - 4, rw * 2, rh_s))
+        # Shadow stays on ground, body goes up
+        shadow_scale = max(0.3, 1.0 - self.jump_height / 150.0)
+        shadow_rw = int(rw * shadow_scale)
+        pygame.draw.ellipse(surface, C_SHADOW,
+                            (sx - shadow_rw + 4, sy + rh_s - 4, shadow_rw * 2, rh_s))
 
-        kl = self.COLOR_P2 if self.phase2 else self.COLOR_P1
+        kl = self.bdef["color_p1"]
         if self.flinch_timer > 0 and (self.flinch_timer // 4) % 2 == 0:
             kl = (220, 220, 220)
-        pygame.draw.ellipse(surface, kl, (sx - rw, sy - rh_s, rw * 2, rh_s * 2))
+        pygame.draw.ellipse(surface, kl, (sx - rw, body_sy - rh_s, rw * 2, rh_s * 2))
         pygame.draw.ellipse(surface, (200, 180, 150),
-                            (sx - rw, sy - rh_s, rw * 2, rh_s * 2), 3)
+                            (sx - rw, body_sy - rh_s, rw * 2, rh_s * 2), 3)
 
         if self.burning_timer > 0:
             puls = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() * 0.015)
@@ -1396,30 +1630,75 @@ class Boss:
             ba   = int(120 + puls * 80)
             bs   = pygame.Surface((br * 2 + 4, br * 2 + 4), pygame.SRCALPHA)
             pygame.draw.circle(bs, (255, int(80 + puls * 60), 0, ba), (br + 2, br + 2), br)
-            surface.blit(bs, (sx - br - 2, sy - br - 2))
+            surface.blit(bs, (sx - br - 2, body_sy - br - 2))
 
-        pygame.draw.circle(surface, self.COLOR_EYE,
-            (int(sx + self.fx * int(r * 0.55)), int(sy + self.fy * int(r * 0.55))), 7)
+        # Don't draw eye/sword while airborne (boss is a blur in the sky)
+        if self.state != "jump_air":
+            pygame.draw.circle(surface, self.bdef["color_eye"],
+                (int(sx + self.fx * int(r * 0.55)),
+                 int(body_sy + self.fy * int(r * 0.55))), 7)
 
-        fh = math.degrees(math.atan2(self.fy, self.fx))
-        if self.state in ("melee_windup", "melee_aanval") and self.anim_timer > 0:
-            t_raw = 1.0 - self.anim_timer / self.MELEE_FRAMES
-            prog  = ease_in_out(t_raw)
-            zh    = fh - 70 + prog * 140
-            rad   = math.radians(zh)
-            pygame.draw.line(surface, (200, 200, 230), (sx, sy),
-                (int(sx + math.cos(rad) * 58), int(sy + math.sin(rad) * 58)), 6)
-        else:
-            rh2 = math.radians(fh + 30)
-            pygame.draw.line(surface, C_SWORD, (sx, sy),
-                (int(sx + math.cos(rh2) * 40), int(sy + math.sin(rh2) * 40)), 5)
+            fh = math.degrees(math.atan2(self.fy, self.fx))
+            if self.state == "melee_windup":
+                # Sword pulled back — clear windup tell
+                ma = self._atk["melee"]
+                windup_t = int(ma["windup"] * self._windup_mult())
+                prog = 1.0 - self.state_timer / max(1, windup_t)
+                # Sword rotates backwards then holds ready
+                zh  = fh + 180 - prog * 50  # pulled behind body
+                rad = math.radians(zh)
+                slen = int(50 + prog * 30)  # sword extends back (long boss sword)
+                pygame.draw.line(surface, (220, 80, 40), (sx, body_sy),
+                    (int(sx + math.cos(rad) * slen),
+                     int(body_sy + math.sin(rad) * slen)), 6)
+                # Red warning glow that intensifies
+                gw_r = int(20 + prog * 25)
+                gw_a = int(40 + prog * 120)
+                gws  = pygame.Surface((gw_r * 2 + 4, gw_r * 2 + 4), pygame.SRCALPHA)
+                pygame.draw.circle(gws, (255, 50, 20, gw_a),
+                                   (gw_r + 2, gw_r + 2), gw_r)
+                surface.blit(gws, (sx - gw_r - 2, body_sy - gw_r - 2))
+            elif self.state == "melee_attack" and self.anim_timer > 0:
+                # Big sweeping swing arc with swoosh trail
+                ma    = self._atk["melee"]
+                t_raw = 1.0 - self.anim_timer / ma["frames"]
+                prog  = ease_in_out(t_raw)
+                zh    = fh - 90 + prog * 180   # wide 180° arc
+                rad   = math.radians(zh)
+                slen  = 90  # long boss sword
+                tip_x = int(sx + math.cos(rad) * slen)
+                tip_y = int(body_sy + math.sin(rad) * slen)
+                # Swoosh trail — draw previous arc positions as fading lines
+                trail_steps = 5
+                for ti in range(trail_steps):
+                    tp   = max(0.0, prog - (ti + 1) * 0.06)
+                    tzh  = fh - 90 + tp * 180
+                    trad = math.radians(tzh)
+                    ta   = int(140 - ti * 28)
+                    tlen = slen - ti * 4
+                    if ta > 0:
+                        ttx = int(sx + math.cos(trad) * tlen)
+                        tty = int(body_sy + math.sin(trad) * tlen)
+                        ts  = pygame.Surface((surface.get_width(), surface.get_height()),
+                                             pygame.SRCALPHA)
+                        pygame.draw.line(ts, (255, 220, 180, ta),
+                                         (sx, body_sy), (ttx, tty), max(2, 8 - ti))
+                        surface.blit(ts, (0, 0))
+                # Main sword blade
+                pygame.draw.line(surface, (220, 220, 240), (sx, body_sy),
+                    (tip_x, tip_y), 8)
+            else:
+                rh2 = math.radians(fh + 30)
+                pygame.draw.line(surface, C_SWORD, (sx, body_sy),
+                    (int(sx + math.cos(rh2) * 40),
+                     int(body_sy + math.sin(rh2) * 40)), 5)
 
         bw    = r * 4
         ratio = max(0, self.hp / self.hp_max)
-        pygame.draw.rect(surface, (80, 20, 20),  (sx - bw//2, sy - r - 14, bw, 8))
-        kl_hp = (255, 100, 20) if self.phase2 else (220, 60, 60)
-        pygame.draw.rect(surface, kl_hp, (sx - bw//2, sy - r - 14, int(bw * ratio), 8))
-        pygame.draw.rect(surface, (200, 180, 150), (sx - bw//2, sy - r - 14, bw, 8), 1)
+        pygame.draw.rect(surface, (80, 20, 20),  (sx - bw//2, body_sy - r - 14, bw, 8))
+        kl_hp = (220, 60, 60)
+        pygame.draw.rect(surface, kl_hp, (sx - bw//2, body_sy - r - 14, int(bw * ratio), 8))
+        pygame.draw.rect(surface, (200, 180, 150), (sx - bw//2, body_sy - r - 14, bw, 8), 1)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

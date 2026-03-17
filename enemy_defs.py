@@ -1,0 +1,65 @@
+# enemy_defs.py - Data-driven enemy definitions
+# Single source of truth for all enemy stats and AI parameters.
+# Adding a new enemy = adding a new dict entry.
+# Tweaking an enemy = changing a number.
+
+ENEMIES = {
+    "wolf": {
+        "name":        "Wolf",
+        "hp_mult":     0.8,
+        "speed_mult":  1.1,
+        "radius":      13,
+        "aggro_range": 200,
+        "kb_mult":     0.4,       # knockback received multiplier
+        "color":       (160, 130, 60),  # base color (glow modifies it)
+        "ai":          "wolf",
+
+        # Wolf AI parameters
+        "standoff_dist":   180,
+        "windup_frames":   30,
+        "dash_frames":     28,
+        "dash_speed_mult": 1.9,    # multiplier on DODGE_SPEED
+        "recovery_frames": 100,
+        "damage_mult":     1.2,    # multiplier on ENEMY_MELEE_DAMAGE
+    },
+
+    "melee": {
+        "name":        "Melee",
+        "hp_mult":     1.0,
+        "speed_mult":  1.0,
+        "radius":      14,
+        "aggro_range": 260,
+        "kb_mult":     1.0,
+        "color":       None,       # uses C_MELEE constant
+        "ai":          "melee",
+
+        # Melee AI parameters
+        "reach":           48,
+        "attack_cooldown": 90,
+        "windup_frames":   6,
+        "anim_frames":     20,
+    },
+
+    "ranged": {
+        "name":        "Ranged",
+        "hp_mult":     1.0,
+        "speed_mult":  1.0,
+        "radius":      14,
+        "aggro_range": 260,
+        "kb_mult":     1.0,
+        "color":       None,       # uses C_RANGED constant
+        "ai":          "ranged",
+
+        # Ranged AI parameters
+        "flee_dist":       130,
+        "target_dist":     240,
+        "aim_frames":      35,
+        "salvo_size":      3,
+        "salvo_interval":  8,
+    },
+}
+
+
+def get_enemy(name):
+    """Get enemy definition by key. Returns melee as fallback."""
+    return ENEMIES.get(name, ENEMIES["melee"])
