@@ -32,6 +32,8 @@ ENEMIES = {
         "aggro_range": 260,
         "kb_mult":     1.0,
         "exp":         12,
+        "gold_chance": 0.20,
+        "gold_range":  (2, 5),
         "color":       None,       # uses C_MELEE constant
         "ai":          "melee",
 
@@ -50,6 +52,8 @@ ENEMIES = {
         "aggro_range": 260,
         "kb_mult":     1.0,
         "exp":         18,
+        "gold_chance": 0.20,
+        "gold_range":  (2, 5),
         "color":       None,       # uses C_RANGED constant
         "ai":          "ranged",
 
@@ -59,6 +63,26 @@ ENEMIES = {
         "aim_frames":      35,
         "salvo_size":      3,
         "salvo_interval":  8,
+    },
+
+    "iron_warden": {
+        "name":        "The Iron Warden",
+        "hp_mult":     2.5,
+        "speed_mult":  0.85,
+        "radius":      18,
+        "aggro_range": 280,
+        "kb_mult":     0.5,       # hard to knock back
+        "exp":         40,
+        "gold_chance": 0,         # drops key instead
+        "loot_item":   "rusted_key",
+        "color":       (85, 95, 105),
+        "ai":          "melee",
+
+        # Melee AI parameters
+        "reach":           52,
+        "attack_cooldown": 80,
+        "windup_frames":   8,
+        "anim_frames":     22,
     },
 }
 

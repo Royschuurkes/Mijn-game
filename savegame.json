@@ -11,13 +11,17 @@
     "fire_potion"
   ],
   "item_charges": {
-    "health_potion": 0,
-    "fire_potion": 0
+    "health_potion": 2,
+    "fire_potion": 2
   },
-  "active_item_slot": 1,
+  "active_item_slot": 0,
+  "exp": 45,
+  "gold": 0,
+  "npcs_rescued": [],
+  "npcs_killed": [],
+  "weapon_upgrades": {},
   "active_effects": {
     "invis": 0,
     "fire_potion": 0
-  },
-  "exp": 97
+  }
 }

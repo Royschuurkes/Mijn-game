@@ -517,6 +517,7 @@ class Player:
     def take_damage(self, damage, from_x, from_y):
         if self.dodge_timer > 0 or self.flinch_cooldown > 0: return False
         if self.has_active_effect("invis"): return False
+        if getattr(self, "god_mode", False): return False
         self.hp = max(0, self.hp - damage)
         knx, kny = normalize(self.x - from_x, self.y - from_y)
         self.flinch_timer    = FLINCH_PLAYER
@@ -1109,6 +1110,27 @@ class Enemy:
                    for ox in (-r, 0, r) for oy in (-r, 0, r)):
             self.y = ny
 
+    def apply_separation(self, all_enemies):
+        """Push away from nearby enemies so they don't stack."""
+        if not self.aggro or self.flinch_timer > 0:
+            return
+        SEP_RADIUS = 48
+        SEP_FORCE  = 0.5
+        sx = sy = 0.0
+        for other in all_enemies:
+            if other is self:
+                continue
+            dx = self.x - other.x
+            dy = self.y - other.y
+            d  = math.hypot(dx, dy)
+            if 0 < d < SEP_RADIUS:
+                strength = (SEP_RADIUS - d) / SEP_RADIUS
+                sx += (dx / d) * strength
+                sy += (dy / d) * strength
+        if sx or sy:
+            self.x += sx * SEP_FORCE
+            self.y += sy * SEP_FORCE
+
     # ── Drawing ───────────────────────────────────────────────────────────────
     def draw(self, surface, cam_x, cam_y):
         sx   = int(self.x - cam_x); sy = int(self.y - cam_y)
@@ -1319,16 +1341,24 @@ class Boss:
             self.scale_x = lerp(self.scale_x, 0.7,  0.12)
             self.scale_y = lerp(self.scale_y, 1.45, 0.12)
             if self.state_timer == 0:
-                self.state       = "melee_attack"
-                self.state_timer = ma["frames"]
-                self.anim_timer  = ma["frames"]
-                self.scale_x = 1.6; self.scale_y = 0.5
-                if player_flinch_cd <= 0 and dist < ma["reach"] + 25:
+                self.state        = "melee_attack"
+                self.state_timer  = ma["frames"]
+                self.anim_timer   = ma["frames"]
+                self.scale_x      = 1.6; self.scale_y = 0.5
+                self.lunge_dx     = self.fx * 6.5
+                self.lunge_dy     = self.fy * 6.5
+                self.lunge_frames = 10
+                if player_flinch_cd <= 0 and dist < ma["reach"] + 50:
                     attack = ("melee", self.x, self.y,
                               ma["damage"] * self.damage_mult)
 
         elif self.state == "melee_attack":
             ma = self._atk["melee"]
+            if getattr(self, "lunge_frames", 0) > 0:
+                self._move(self.lunge_dx, self.lunge_dy, is_blocked)
+                self.lunge_dx    *= 0.75
+                self.lunge_dy    *= 0.75
+                self.lunge_frames -= 1
             if self.state_timer == 0:
                 cd_mult = 1.0
                 self.state       = "recovery"
@@ -1622,9 +1652,16 @@ class Boss:
         kl = self.bdef["color_p1"]
         if self.flinch_timer > 0 and (self.flinch_timer // 4) % 2 == 0:
             kl = (220, 220, 220)
+        # Bear body — slightly wider than tall for bulk
         pygame.draw.ellipse(surface, kl, (sx - rw, body_sy - rh_s, rw * 2, rh_s * 2))
         pygame.draw.ellipse(surface, (200, 180, 150),
                             (sx - rw, body_sy - rh_s, rw * 2, rh_s * 2), 3)
+        # Bear ears
+        ear_kl  = kl
+        ear_off = int(rw * 0.65)
+        for ex_off in (-ear_off, ear_off):
+            pygame.draw.circle(surface, ear_kl,  (sx + ex_off, body_sy - rh_s + 2), 7)
+            pygame.draw.circle(surface, (60, 30, 10), (sx + ex_off, body_sy - rh_s + 2), 4)
 
         if self.burning_timer > 0:
             puls = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() * 0.015)
@@ -1642,58 +1679,71 @@ class Boss:
 
             fh = math.degrees(math.atan2(self.fy, self.fx))
             if self.state == "melee_windup":
-                # Sword pulled back — clear windup tell
+                # Paw pulled back — windup tell with red glow
                 ma = self._atk["melee"]
                 windup_t = int(ma["windup"] * self._windup_mult())
                 prog = 1.0 - self.state_timer / max(1, windup_t)
-                # Sword rotates backwards then holds ready
-                zh  = fh + 180 - prog * 50  # pulled behind body
+                # Paw retracts behind body
+                zh  = fh + 180 - prog * 40
                 rad = math.radians(zh)
-                slen = int(50 + prog * 30)  # sword extends back (long boss sword)
-                pygame.draw.line(surface, (220, 80, 40), (sx, body_sy),
-                    (int(sx + math.cos(rad) * slen),
-                     int(body_sy + math.sin(rad) * slen)), 6)
-                # Red warning glow that intensifies
-                gw_r = int(20 + prog * 25)
+                plen = int(28 + prog * 12)
+                px = int(sx + math.cos(rad) * plen)
+                py = int(body_sy + math.sin(rad) * plen)
+                pygame.draw.circle(surface, kl, (px, py), 9)
+                pygame.draw.circle(surface, (60, 30, 10), (px, py), 9, 2)
+                # Claw tips
+                for ci in range(3):
+                    ca  = math.radians(zh - 25 + ci * 25)
+                    clx = int(px + math.cos(ca) * 10)
+                    cly = int(py + math.sin(ca) * 10)
+                    pygame.draw.circle(surface, (200, 180, 150), (clx, cly), 3)
+                # Red warning glow
+                gw_r = int(18 + prog * 22)
                 gw_a = int(40 + prog * 120)
                 gws  = pygame.Surface((gw_r * 2 + 4, gw_r * 2 + 4), pygame.SRCALPHA)
                 pygame.draw.circle(gws, (255, 50, 20, gw_a),
                                    (gw_r + 2, gw_r + 2), gw_r)
                 surface.blit(gws, (sx - gw_r - 2, body_sy - gw_r - 2))
             elif self.state == "melee_attack" and self.anim_timer > 0:
-                # Big sweeping swing arc with swoosh trail
+                # Wide claw swipe with arc trail
                 ma    = self._atk["melee"]
                 t_raw = 1.0 - self.anim_timer / ma["frames"]
                 prog  = ease_in_out(t_raw)
-                zh    = fh - 90 + prog * 180   # wide 180° arc
+                zh    = fh - 80 + prog * 160
                 rad   = math.radians(zh)
-                slen  = 90  # long boss sword
-                tip_x = int(sx + math.cos(rad) * slen)
-                tip_y = int(body_sy + math.sin(rad) * slen)
-                # Swoosh trail — draw previous arc positions as fading lines
+                plen  = 75
+                px    = int(sx + math.cos(rad) * plen)
+                py    = int(body_sy + math.sin(rad) * plen)
+                # Swoosh trail
                 trail_steps = 5
                 for ti in range(trail_steps):
-                    tp   = max(0.0, prog - (ti + 1) * 0.06)
-                    tzh  = fh - 90 + tp * 180
+                    tp   = max(0.0, prog - (ti + 1) * 0.07)
+                    tzh  = fh - 80 + tp * 160
                     trad = math.radians(tzh)
-                    ta   = int(140 - ti * 28)
-                    tlen = slen - ti * 4
+                    ta   = int(130 - ti * 26)
+                    tlen = plen - ti * 5
                     if ta > 0:
                         ttx = int(sx + math.cos(trad) * tlen)
                         tty = int(body_sy + math.sin(trad) * tlen)
                         ts  = pygame.Surface((surface.get_width(), surface.get_height()),
                                              pygame.SRCALPHA)
-                        pygame.draw.line(ts, (255, 220, 180, ta),
-                                         (sx, body_sy), (ttx, tty), max(2, 8 - ti))
+                        pygame.draw.line(ts, (200, 150, 80, ta),
+                                         (sx, body_sy), (ttx, tty), max(2, 7 - ti))
                         surface.blit(ts, (0, 0))
-                # Main sword blade
-                pygame.draw.line(surface, (220, 220, 240), (sx, body_sy),
-                    (tip_x, tip_y), 8)
+                # Paw at tip of swipe
+                pygame.draw.circle(surface, kl, (px, py), 9)
+                for ci in range(3):
+                    ca  = math.radians(zh - 25 + ci * 25)
+                    clx = int(px + math.cos(ca) * 11)
+                    cly = int(py + math.sin(ca) * 11)
+                    pygame.draw.circle(surface, (220, 200, 170), (clx, cly), 3)
             else:
-                rh2 = math.radians(fh + 30)
-                pygame.draw.line(surface, C_SWORD, (sx, body_sy),
-                    (int(sx + math.cos(rh2) * 40),
-                     int(body_sy + math.sin(rh2) * 40)), 5)
+                # Idle paw resting forward
+                rh2 = math.radians(fh + 25)
+                px  = int(sx + math.cos(rh2) * 32)
+                py  = int(body_sy + math.sin(rh2) * 32)
+                pygame.draw.circle(surface, kl, (px, py), 8)
+                pygame.draw.circle(surface, (60, 30, 10), (px, py), 8, 2)
 
         bw    = r * 4
         ratio = max(0, self.hp / self.hp_max)

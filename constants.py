@@ -74,6 +74,10 @@ DEFAULT_SAVE = {
     "item_charges":       {"health_potion": 3},
     "active_item_slot":   0,
     "exp":                0,
+    "gold":               0,
+    "npcs_rescued":       [],
+    "npcs_killed":        [],
+    "weapon_upgrades":    {},
     "active_effects": {
         "invis":       0,
         "fire_potion": 0,
@@ -111,5 +115,9 @@ def reset_save():
 # ── Stat helpers ──────────────────────────────────────────────────────────────
 def get_max_hp(save):       return BASE_HP
 def get_max_stamina(save):  return BASE_STAMINA
-def get_bonus_damage(save): return 0.0
+_UPGRADE_DAMAGE = {0: 0, 1: 12, 2: 28, 3: 52}
+def get_bonus_damage(save):
+    weapon = save.get("main_hand", "sword")
+    tier   = save.get("weapon_upgrades", {}).get(weapon, 0)
+    return _UPGRADE_DAMAGE.get(tier, 0)
 def get_bonus_dodge(save):  return 0.0

@@ -8,7 +8,9 @@
       "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && pip install mypy 2>&1 | tail -5)",
       "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && python -m mypy . --ignore-missing-imports 2>&1)",
       "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && python -c \"import py_compile; py_compile.compile\\('entities.py', doraise=True\\); py_compile.compile\\('constants.py', doraise=True\\); print\\('OK'\\)\")",
-      "WebSearch"
+      "WebSearch",
+      "Bash(python -c \"import constants, items, level_manager, base_level, forest; print\\(''OK''\\)\")",
+      "Bash(python -c \"import hub; print\\(''OK''\\)\")"
     ]
   }
 }

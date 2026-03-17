@@ -72,6 +72,20 @@ ITEMS = {
         "charges":     3,
         "heal":        35,
     },
+    "rusted_key": {
+        "name":        "Rusted Key",
+        "description": "A heavy iron key. Someone dropped it in a hurry.",
+        "type":        "key",
+        "color":       (160, 140, 80),
+        "color_dim":   (70, 60, 35),
+    },
+    "edrics_chain": {
+        "name":        "Edric's Chain",
+        "description": "Worn by every smith in Edric's line.\nThe metal has no name, but it has not forgotten its purpose.\n-15% physical damage received",
+        "type":        "accessory",
+        "color":       (180, 160, 90),
+        "color_dim":   (80, 70, 40),
+    },
 }
 
 RARITY_WEIGHT = {"common": 55, "rare": 30, "epic": 15}
@@ -90,6 +104,8 @@ def pick_items(n=3, existing_items=None, existing_charges=None):
 
     pool = []
     for key, item in ITEMS.items():
+        if "rarity" not in item:
+            continue  # keys and special items are never randomly dropped
         if item["type"] == "passive" and key in existing_items:
             continue
         weight = RARITY_WEIGHT[item["rarity"]]

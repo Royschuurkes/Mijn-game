@@ -26,6 +26,7 @@ class BaseLevel:
         self.font_m    = pygame.font.SysFont("monospace", 22)
         self.font_g    = pygame.font.SysFont("monospace", 52, bold=True)
         self.tick      = 0
+        self.god_mode  = False
         self.player    = None
         self.cam_zoom        = 1.0
         self.cam_zoom_target = 1.0
@@ -63,6 +64,14 @@ class BaseLevel:
     def _on_enemy_death(self, enemy):
         """Handle enemy death with level-specific particles and effects."""
         raise NotImplementedError
+
+    def _draw_npc_room_objects(self, surface, cam_x, cam_y):
+        """Draw NPC room cage, entity and interaction prompts. Override in subclass."""
+        pass
+
+    def _draw_ground_items(self, surface, cam_x, cam_y):
+        """Draw ground item pickups. Override in subclass for level-specific visuals."""
+        pass
 
     # ═════════════════════════════════════════════════════════════════════════
     #  ROOM LOADING — mostly generic, calls abstract _generate_floor
@@ -118,6 +127,10 @@ class BaseLevel:
         self.equip_cursor       = 0
         self.rest_message_timer  = 0
         self.nearby_ground_item  = None
+        self.nearby_chest        = False
+        self.chest               = None
+        self.dialogue            = None
+        self.npc_cage_pos        = None
 
         if not room["cleared"]:
             for group in room["enemy_config"]:
@@ -163,11 +176,43 @@ class BaseLevel:
         if room["type"] == "rest":
             self.rest_campfire_pos  = room.get("campfire_pos")
             self.rest_campfire_used = room.get("campfire_used", False)
-            self.ground_items       = room.get("ground_items", [])
         else:
             self.rest_campfire_pos  = None
             self.rest_campfire_used = False
-            self.ground_items       = []
+
+        # Ground items persist per room for all room types
+        if "ground_items" not in room:
+            room["ground_items"] = []
+        self.ground_items = room["ground_items"]
+
+        # Chest — spawns once in combat rooms
+        if room["type"] == "combat" and "chest" not in room:
+            roll = random.random()
+            if roll < 0.08:
+                chest_type = "iron"
+            elif roll < 0.28:
+                chest_type = "wooden"
+            else:
+                chest_type = None
+            if chest_type:
+                cx = self.map_w // 2 * TILE + TILE // 2
+                cy = self.map_h // 2 * TILE + TILE // 2
+                angle = random.uniform(0, math.pi * 2)
+                dist  = random.randint(70, 130)
+                room["chest"] = {
+                    "type":   chest_type,
+                    "pos":    (int(cx + math.cos(angle) * dist),
+                               int(cy + math.sin(angle) * dist)),
+                    "opened": False,
+                }
+            else:
+                room["chest"] = None
+        self.chest = room.get("chest")
+
+        if room["type"] == "npc":
+            cx = self.map_w // 2 * TILE + TILE // 2
+            cy = self.map_h // 2 * TILE + TILE // 2
+            self.npc_cage_pos = (cx, cy)
 
     def _unpack_map_data(self, room):
         """Unpack map data from room dict. Override for different map formats."""
@@ -221,10 +266,25 @@ class BaseLevel:
                 if e.key == pygame.K_q:
                     self._use_active_item()
                 if e.key == pygame.K_f:
-                    self._handle_campfire_action()
+                    if self.dialogue:
+                        self._advance_dialogue()
+                    else:
+                        self._handle_f_key()
+                if e.key == pygame.K_g:
+                    self.god_mode = not self.god_mode
                 if e.key == pygame.K_TAB:
                     self.equip_menu_active = not self.equip_menu_active
                     self.equip_cursor = 0
+
+        # Dialogue choice keys (1/2)
+        if self.dialogue and self.dialogue.get("showing_choices"):
+            for e in events:
+                if e.type == pygame.KEYDOWN:
+                    if e.key in (pygame.K_1, pygame.K_KP1):
+                        self._handle_dialogue_choice(0)
+                    elif e.key in (pygame.K_2, pygame.K_KP2):
+                        self._handle_dialogue_choice(1)
+            return None
 
         if self.equip_menu_active:
             self._handle_equip_events(events)
@@ -319,6 +379,7 @@ class BaseLevel:
 
     def _award_exp(self, enemy):
         from effects import DamageNumber
+        # ── EXP ────────────────────────────────────────────────────────
         exp = getattr(enemy, "exp_value", 10)
         if self.dream_touched:
             exp = max(1, exp // 2)
@@ -326,12 +387,148 @@ class BaseLevel:
         kl = (140, 120, 50) if self.dream_touched else (200, 170, 60)
         self.damage_numbers.numbers.append(
             DamageNumber(enemy.x, enemy.y - 42, f"+{exp} XP", kl, large=False))
+        # ── GOLD ───────────────────────────────────────────────────────
+        gold = 0
+        if enemy.type == "boss":
+            lo, hi = enemy.bdef.get("gold_range", (30, 60))
+            gold = random.randint(lo, hi)
+        elif hasattr(enemy, "edef"):
+            chance = enemy.edef.get("gold_chance", 0)
+            if chance > 0 and random.random() < chance:
+                lo, hi = enemy.edef.get("gold_range", (3, 8))
+                gold = random.randint(lo, hi)
+        if gold > 0:
+            self.ground_items.append({
+                "pos":       (enemy.x + random.randint(-12, 12), enemy.y + random.randint(-12, 12)),
+                "key":       "gold_bag",
+                "amount":    gold,
+                "picked_up": False,
+            })
+        # ── LOOT ITEM (e.g. Rusted Key) ────────────────────────────────
+        if hasattr(enemy, "edef"):
+            loot_key = enemy.edef.get("loot_item")
+            if loot_key:
+                self.ground_items.append({
+                    "pos":       (enemy.x, enemy.y),
+                    "key":       loot_key,
+                    "picked_up": False,
+                })
+
+    def _handle_f_key(self):
+        room = self.floor_graph[self.current_pos]
+        if self.nearby_chest:
+            self._open_chest()
+            return
+        if self.nearby_ground_item is not None:
+            self._pickup_ground_item(self.nearby_ground_item)
+            return
+        if room["type"] == "npc":
+            self._handle_npc_interaction(room)
+            return
+        self._handle_campfire_action()
+
+    def _handle_npc_interaction(self, room):
+        """Override in subclass for NPC-specific dialogue and actions."""
+        pass
+
+    def _start_dialogue(self, speaker, lines, choices=None):
+        self.dialogue = {
+            "speaker":         speaker,
+            "lines":           lines,
+            "line_idx":        0,
+            "char_pos":        0,
+            "char_tick":       0,
+            "choices":         choices,
+            "showing_choices": False,
+        }
+
+    def _advance_dialogue(self):
+        d = self.dialogue
+        if not d or d["showing_choices"]:
+            return
+        line = d["lines"][d["line_idx"]]
+        if d["char_pos"] < len(line):
+            d["char_pos"] = len(line)
+            return
+        if d["line_idx"] < len(d["lines"]) - 1:
+            d["line_idx"] += 1
+            d["char_pos"] = 0
+            d["char_tick"] = 0
+        else:
+            if d["choices"]:
+                d["showing_choices"] = True
+            else:
+                self.dialogue = None
+
+    def _update_dialogue(self):
+        d = self.dialogue
+        if not d or d["showing_choices"]:
+            return
+        line = d["lines"][d["line_idx"]]
+        if d["char_pos"] < len(line):
+            d["char_tick"] += 1
+            if d["char_tick"] >= 2:
+                d["char_tick"] = 0
+                d["char_pos"] += 1
+
+    def _handle_dialogue_choice(self, idx):
+        d = self.dialogue
+        if not d or not d.get("showing_choices"):
+            return
+        choices = d.get("choices", [])
+        if idx < len(choices):
+            action = choices[idx].get("action")
+            self.dialogue = None
+            if callable(action):
+                action()
+
+    def _draw_dialogue(self):
+        d = self.dialogue
+        if not d:
+            return
+        bx, by = 20, SCREEN_H - 130
+        bw, bh = SCREEN_W - 40, 110
+        bg = pygame.Surface((bw, bh), pygame.SRCALPHA)
+        bg.fill((10, 10, 15, 215))
+        self.screen.blit(bg, (bx, by))
+        pygame.draw.rect(self.screen, (100, 90, 70), (bx, by, bw, bh), 2)
+        t = self.font_m.render(d["speaker"], True, (220, 185, 100))
+        self.screen.blit(t, (bx + 12, by + 8))
+        if not d["showing_choices"]:
+            line    = d["lines"][d["line_idx"]]
+            visible = line[:d["char_pos"]]
+            t = self.font_s.render(visible, True, (220, 215, 200))
+            self.screen.blit(t, (bx + 12, by + 36))
+            typing_done = (d["char_pos"] >= len(line))
+            if not typing_done:
+                prompt = "[F] Skip"
+            elif d["line_idx"] < len(d["lines"]) - 1:
+                prompt = "[F] Continue"
+            else:
+                prompt = "[F] Continue" if d.get("choices") else "[F] Done"
+            pt = self.font_s.render(prompt, True, (140, 130, 110))
+            self.screen.blit(pt, (bx + bw - pt.get_width() - 12, by + bh - 22))
+        else:
+            colors = [(220, 200, 120), (180, 100, 80)]
+            for i, ch in enumerate(d.get("choices", [])):
+                kl = colors[i] if i < len(colors) else (180, 180, 180)
+                t  = self.font_s.render(f"[{i + 1}]  {ch['text']}", True, kl)
+                self.screen.blit(t, (bx + 12, by + 36 + i * 28))
 
     def _pickup_ground_item(self, ground_item):
         ground_item["picked_up"] = True
         self.nearby_ground_item  = None
-        key    = ground_item["key"]
-        item   = ITEMS[key]
+        key = ground_item["key"]
+        sp  = self.player
+        if key == "gold_bag":
+            amount = ground_item.get("amount", 1)
+            self.save["gold"] = self.save.get("gold", 0) + amount
+            from effects import DamageNumber
+            self.damage_numbers.numbers.append(
+                DamageNumber(sp.x, sp.y - 20, f"+{amount}g", (220, 185, 55), large=False))
+            sound.play("level_up")
+            return
+        item    = ITEMS[key]
         items   = self.save.setdefault("items", [])
         charges = self.save.setdefault("item_charges", {})
         if key not in items:
@@ -339,9 +536,32 @@ class BaseLevel:
             charges[key] = item.get("charges", 1)
         else:
             charges[key] = charges.get(key, 0) + item.get("charges", 1)
-        sp = self.player
         self.damage_numbers.add(sp.x, sp.y - 20, item["name"],
                                 color_override=True, override_color=item["color"])
+        sound.play("level_up")
+
+    def _open_chest(self):
+        chest = self.chest
+        chest["opened"]   = True
+        self.nearby_chest = False
+        cx, cy = chest["pos"]
+        lo, hi = (15, 30) if chest["type"] == "wooden" else (40, 80)
+        gold   = random.randint(lo, hi)
+        self.ground_items.append({
+            "pos":       (cx + random.randint(-15, 15), cy + random.randint(-10, 10)),
+            "key":       "gold_bag",
+            "amount":    gold,
+            "picked_up": False,
+        })
+        if chest["type"] == "iron" and random.random() < 0.65:
+            from items import pick_items
+            candidates = pick_items(1, self.save.get("items", []))
+            if candidates:
+                self.ground_items.append({
+                    "pos":       (cx + random.randint(-20, 20), cy + random.randint(-15, 15)),
+                    "key":       candidates[0],
+                    "picked_up": False,
+                })
         sound.play("level_up")
 
     def _update_nearby_ground_item(self):
@@ -356,6 +576,13 @@ class BaseLevel:
                 best_dist = dist
                 best      = gi
         self.nearby_ground_item = best
+
+        self.nearby_chest = (
+            self.chest is not None
+            and not self.chest["opened"]
+            and math.hypot(sp.x - self.chest["pos"][0],
+                           sp.y - self.chest["pos"][1]) < 55
+        )
 
     # ── Equipment menu ───────────────────────────────────────────────────────
 
@@ -538,6 +765,13 @@ class BaseLevel:
         if self.equip_menu_active:
             return
 
+        if self.dialogue:
+            self._update_dialogue()
+            self.particles.update()
+            self.damage_numbers.update()
+            self.shake.update()
+            return
+
         if self.transition_timer > 0:
             self.transition_timer -= 1
             if self.transition_timer == 0 and self._pending_room:
@@ -600,13 +834,15 @@ class BaseLevel:
 
     def _update_sword_hits(self):
         sp      = self.player
+        sp.god_mode = self.god_mode
         targets = self.enemies + ([self.boss] if self.boss else [])
+        dmg_mult = 20 if self.god_mode else 1
 
         # Charge hit detection
         if sp.charge_timer > 0:
             for target, damage, kb_nx, kb_ny in sp.charge_hits(targets):
                 fire = sp.has_item("fire_damage") or sp.has_active_effect("fire_potion")
-                dead = target.take_damage_swing(damage, kb_nx, kb_ny)
+                dead = target.take_damage_swing(damage * dmg_mult, kb_nx, kb_ny)
                 if fire and not getattr(target, 'burning_timer', 0) > 0:
                     target.burning_timer = 360
                     target.burning_tick  = 120
@@ -621,6 +857,8 @@ class BaseLevel:
                 if dead:
                     self._award_exp(target)
                     self._on_enemy_death(target)
+                    if target is self.boss:
+                        self.boss = None
             return
 
         # Normal swing hit detection
@@ -640,7 +878,7 @@ class BaseLevel:
 
         for target, damage, kb_nx, kb_ny in hits:
             fire = sp.has_item("fire_damage") or sp.has_active_effect("fire_potion")
-            dead = target.take_damage_swing(damage, kb_nx, kb_ny, hitstop=hs, hit_squash=h_sq)
+            dead = target.take_damage_swing(damage * dmg_mult, kb_nx, kb_ny, hitstop=hs, hit_squash=h_sq)
             if fire and not getattr(target, 'burning_timer', 0) > 0:
                 target.burning_timer = 360
                 target.burning_tick  = 120
@@ -666,6 +904,8 @@ class BaseLevel:
             if dead:
                 self._award_exp(target)
                 self._on_enemy_death(target)
+                if target is self.boss:
+                    self.boss = None
 
     def _update_enemies(self, block):
         sp   = self.player
@@ -684,6 +924,7 @@ class BaseLevel:
                     e.aggro    = True
                     e.sleeping = False
         for e in self.enemies:
+            e.apply_separation(self.enemies)
             result = e.update(sp.x, sp.y, self.is_blocked, fh,
                               block, sp.flinch_cooldown)
             if result is None:
@@ -1009,6 +1250,7 @@ class BaseLevel:
             self.room_intro_timer -= 1
         if not self.player.alive:
             self._draw_death_screen()
+        self._draw_dialogue()
 
     def _draw_world(self, surface, cam_x, cam_y):
         sp    = self.player
@@ -1021,6 +1263,8 @@ class BaseLevel:
         surface.fill(C_BG)
         self._draw_tiles(surface, cam_x, cam_y)
         self._draw_rest_room_objects(surface, cam_x, cam_y)
+        self._draw_npc_room_objects(surface, cam_x, cam_y)
+        self._draw_ground_items(surface, cam_x, cam_y)
         self.particles.draw(surface, cam_x, cam_y)
 
         for e in self.enemies:
@@ -1087,9 +1331,13 @@ class BaseLevel:
             t  = self.font_m.render("  ".join(dots), True, kl)
             self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, SCREEN_H - 38))
 
+        if self.god_mode:
+            t = self.font_s.render("★ GOD MODE", True, (255, 215, 0))
+            self.screen.blit(t, (SCREEN_W - t.get_width() - 10, 10))
+
         if sp.has_active_effect("invis"):
             t = self.font_s.render("\u25cf INVULNERABLE", True, (100, 200, 255))
-            self.screen.blit(t, (SCREEN_W - t.get_width() - 10, 10))
+            self.screen.blit(t, (SCREEN_W - t.get_width() - 10, 10 if not self.god_mode else 28))
 
         room          = self.floor_graph[self.current_pos]
         combat_rooms  = [p for p, r in self.floor_graph.items() if r["type"] == "combat"]
@@ -1124,9 +1372,12 @@ class BaseLevel:
             t.set_alpha(alpha)
             self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, SCREEN_H // 2 - 80))
 
-        exp_val = self.save.get("exp", 0)
+        exp_val  = self.save.get("exp", 0)
+        gold_val = self.save.get("gold", 0)
         t = self.font_s.render(f"XP  {exp_val:,}", True, (190, 160, 55))
         self.screen.blit(t, (10, SCREEN_H - 42))
+        t = self.font_s.render(f"G   {gold_val:,}", True, (220, 185, 55))
+        self.screen.blit(t, (10, SCREEN_H - 24))
 
         if self.dream_touched:
             t = self.font_s.render("\u25c6 Dream-touched  \u2013 lessons do not hold", True, (120, 100, 155))
@@ -1235,7 +1486,7 @@ class BaseLevel:
         if keys[pygame.K_r]:
             # Consumables (active items) persist through death; passive items are lost
             self.dream_touched = False
-            kept = [k for k in self.save.get("items", []) if ITEMS[k]["type"] == "active"]
+            kept = [k for k in self.save.get("items", []) if ITEMS[k]["type"] in ("active", "accessory")]
             self.save["items"]        = kept
             self.save["item_charges"] = {k: v for k, v in
                                          self.save.get("item_charges", {}).items()

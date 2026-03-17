@@ -198,31 +198,28 @@ PHASE 3 — EXP system (basic) (COMPLETE)
 
 PHASE 4 — NPC system (first pass) + gold + inventory redesign
 
-  ── GOLD SYSTEM ──────────────────────────────────────────────────────────────
+  ── GOLD SYSTEM (COMPLETE) ────────────────────────────────────────────────
   Gold is a permanent currency — survives death, accumulates over time.
+  - Humanoid enemies only (melee, ranged): 20% drop chance, 2–5g
+  - Boss drops guaranteed: 20–40g
+  - Gold drops as a physical bag on the ground — picked up with [F]
+  - Gold shown in HUD bottom-left alongside XP
+  - save["gold"] persists through death
 
-  Sources:
-  - Humanoid enemies only (melee, ranged) — wolves do NOT drop gold
-  - Drop is not guaranteed: ~40% chance for melee (3–8g), ~50% for ranged (5–12g)
-  - Boss drops gold guaranteed: 30–60g
-  - Rare chests in combat rooms:
-      Wooden chest (more common): 15–30g
-      Iron chest (rare): 40–80g + possible consumable item
-  - Abandoned campsites: small chance of gold (5–20g) alongside consumables
-  - Gold shown in HUD alongside XP
+  Still TODO:
+  - Abandoned campsites: small chance of gold (5–20g)
 
-  ── THE IRON WARDEN (elite enemy) ─────────────────────────────────────────
-  A bandit captain who has claimed a stretch of the forest as his own.
-  Visually distinct from regular enemies: larger, different colour, more HP.
+  ── THE IRON WARDEN (COMPLETE) ────────────────────────────────────────────
+  Elite bandit captain, visually distinct (larger, iron-grey, more HP).
   Spawns in one random combat room on the same floor as Edric (floor 2+).
-  Drops: "Rusted Key" on death — used to open Edric's cage.
-  The key sits in inventory. Walking up to the cage with the key triggers the
-  option to open it. The player may find the Warden before Edric — the key is
-  then already in their pocket when they reach the cage ("oh" moment).
+  Drops "Rusted Key" as a ground item on death — used to open Edric's cage.
+  Key is NOT persistent: lost on death, must be found again next run.
+  The player may find the Warden before Edric — key is already in pocket
+  when they reach the cage (satisfying discovery moment).
 
-  ── EDRIC (first NPC — The Blacksmith) ────────────────────────────────────
-  Location: Level 1, floor 2 or higher. Fixed-layout NPC room, random position
-  within the floor graph.
+  ── EDRIC (first NPC — The Blacksmith) (COMPLETE) ─────────────────────────
+  Location: Level 1, floor 2+. NPC room with cage, random position in floor.
+  Spawns only if Edric has not been rescued or killed in a previous run.
 
   Lore:
   Edric was the fort's armorer under the Knight-Lord. When the order began to
@@ -232,76 +229,65 @@ PHASE 4 — NPC system (first pass) + gold + inventory redesign
   him in the forest.
   He is not warm. He is not grateful. He is pragmatic and professional.
 
-  Dialogue — in the cage (first encounter):
-    Edric: "You're not one of theirs. I can see that much."
-           "There's a man. Calls himself the Iron Warden. He has the key to
-            this cage. Find him, and you find it."
-           "What you do with me after that is your own business."
+  Dialogue — in cage, no key:
+    "You're not one of theirs. I can see that much."
+    "There's a man. Calls himself the Iron Warden."
+    "He has the key to this cage. Find him, and you find it."
+    "What you do with me after that is your own business."
+  Repeat visit (no key): "Find the Warden. He has the key."
 
-  Dialogue — if player already has the key:
-    Edric: "You already have it. Then open the cage or don't. I won't beg."
+  Dialogue — opening cage (has key):
+    "There's a fort not far. Used to mean something."
+    "I'll find my way."
+    [1] Send him to the fort   [2] Attack
 
-  Dialogue — after opening the cage (choice prompt):
-    Edric: "There's a fort not far. Used to mean something. I'll find my way."
-    [Send him to the fort]   [Attack]
+  Hub: appears at forge (upper-left of hub map). [F] opens shop.
 
-  Dialogue — first time at hub:
-    Edric: "Still standing. Good enough. I'll set up here. Don't expect
-            conversation."
-
-  Ambient hub lines (rotate, evolve as player upgrades/buys):
-    "That sword of yours has seen better days."
-    "Gold's honest. Doesn't pretend to be anything else."
-    "The forest is getting stranger. I can feel it in the metal."
-    "Bring me the materials and I'll make it worth your while."
-
-  Hub function:
-  - Sells: wooden shield (gold cost)
-  - Upgrades weapons: +1 / +2 / +3 damage tiers, cost scales with tier
+  Hub shop:
+  - Wooden Shield: 60g (one-time)
+  - Weapon upgrade +1: 120g (+12 dmg)  |  +2: 320g (+28 dmg)  |  +3: 750g (+52 dmg)
+  - Upgrades are per-weapon (save["weapon_upgrades"][weapon_key] = tier)
+  - Damage bonus in constants.py: _UPGRADE_DAMAGE = {0:0, 1:12, 2:28, 3:52}
   - Later (Phase 8+): crafting with enemy-dropped materials
 
   Kill reward — Edric's Chain:
-  - Type: accessory (neck slot — new equipment slot)
-  - Effect: -15% physical damage received
+  - Type: accessory, persists through death
+  - Effect: -15% physical damage (effect pending accessory slot — Phase 4 TODO)
   - Description: "Worn by every smith in Edric's line. The metal has no name,
     but it has not forgotten its purpose."
-  - Only obtainable by killing Edric; cannot be found any other way
-  - Introduces physical damage as the foundation of the future damage type
-    system (physical, fire, magic, poison etc. — to be expanded later)
+  - Only obtainable by killing Edric
 
-  ── CORVIN (alternative smith — Level 2) ───────────────────────────────────
-  A self-taught scavenger smith who learned by necessity. He doesn't ask where
-  things come from. He is always spawnable in Level 2 regardless of Edric's
-  fate — but his role in the hub depends on player choices:
+  ── CHESTS IN COMBAT ROOMS (COMPLETE) ────────────────────────────────────
+  Spawn once per combat room, stored in room["chest"], persist between visits.
+  - Wooden chest: 20% chance → 15–30g
+  - Iron chest:    8% chance → 40–80g + 65% kans op random item
+  - Opened chest remains visible (lid open) but no longer interactive
+  - [F] to open when nearby
 
-  - If Edric is alive: Corvin arrives at the hub as a traveling merchant,
-    sells consumables, does not touch the forge.
-  - If Edric is dead: Corvin takes over the forge. He can upgrade weapons
-    but only to +2 (not +3), charges ~40% more than Edric would have.
-    He cannot sell the wooden shield.
+  ── CORVIN (alternative smith) (COMPLETE) ─────────────────────────────────
+  Dungeon: spawns floor 3+, only after Edric is dealt with (rescued or killed).
+  No Iron Warden key needed — cage opens directly via [F] dialogue.
+  Dialogue: "I can take care of myself. I just need out."
+  Choice: [Open the cage] or [Walk away]
 
-  Ambient hub lines (when running the forge):
-    "I don't ask where things come from. You shouldn't ask either."
-    "Edric, was it? Heard of him. Good hands. Shame."
-    "It'll hold. Probably."
+  Hub role depends on Edric's fate:
+  - Edric alive: Corvin = traveling merchant on the grass area
+      Sells: Health Potion 25g, Fire Potion 35g
+  - Edric dead: Corvin = forge master (takes Edric's spot)
+      Upgrades max +2 only, ~40% more expensive: +1=170g, +2=450g
+      Cannot sell wooden shield
+  Visual: darker/greenish, distinct from Edric
 
-  ── ACCESSORY SLOT ─────────────────────────────────────────────────────────
-  New equipment slot: accessory (neck/chain).
-  - save["accessory"] — currently equipped accessory key or None
-  - save["inventory_accessories"] — list of owned accessories
-  - Shown in the inventory/equipment screen
-  - Edric's Chain is the first and only accessory in Phase 4
-
-  ── INVENTORY REDESIGN ─────────────────────────────────────────────────────
-  Redesign Tab menu alongside NPC system since inventory gets real content here.
-  - Tab pauses the game and opens a full screen showing everything at once
-  - Left side: character silhouette with equipment slots
-    (main hand, off hand, accessory — armor slots added later)
-  - Right side: inventory list (consumables, accessories, future items)
-  - Selecting a slot shows compatible items; number keys to equip
-  - No drag-and-drop — keyboard/mouse navigation only
-  - Inspired by Dark Souls equipment screen: clean, proven, no clutter
-  - Current three-tab system is a placeholder until this is built
+  ── ACCESSORY SLOT + INVENTORY REDESIGN — TODO ────────────────────────────
+  Still to build in Phase 4:
+  - Accessory equipment slot (neck/chain): save["accessory"]
+  - Apply Edric's Chain -15% physical damage effect in combat
+  - Full inventory redesign (Tab → full screen, Dark Souls style):
+      Left: character silhouette with equipment slots
+            (main hand, off hand, accessory — armor later)
+      Right: inventory list (consumables, accessories)
+      Number keys to equip; no drag-and-drop
+      Current 3-tab system is placeholder until this is built
 
 PHASE 5 — Story foundation
   Give the game a reason to exist.
@@ -339,6 +325,11 @@ CURRENT PRIORITY
 ═══════════════════════════════════════════════
 
 PHASE 4 — NPC system (first pass) + inventory redesign.
+
+Remaining Phase 4 work:
+- Accessory slot (apply Edric's Chain effect)
+- Inventory/equipment screen redesign (Dark Souls style, replaces 3-tab Tab menu)
+- Gold in abandoned campsites
 
 ───────────────────────────────────────────────
 WHAT HAS BEEN DONE IN PHASE 1 (complete)

@@ -7,14 +7,15 @@ from constants import DODGE_SPEED
 
 BOSSES = {
     "forest_warrior": {
-        "name":       "The Forest Warrior",
+        "name":       "The Ancient Bear",
         "hp":         700.0,
-        "radius":     32,
+        "radius":     38,
         "speed":      1.6,
         "exp":        150,
-        "color_p1":   (55, 90, 45),
-        "color_p2":   (110, 30, 20),
-        "color_eye":  (200, 80, 255),
+        "gold_range": (30, 60),
+        "color_p1":   (95, 60, 30),
+        "color_p2":   (130, 40, 15),
+        "color_eye":  (220, 140, 20),
 
         # Phase 2
         "phase2_threshold":   0.5,     # HP ratio to trigger phase 2

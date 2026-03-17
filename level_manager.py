@@ -93,7 +93,7 @@ OPPOSITE        = {"N": "S", "S": "N", "E": "W", "W": "E"}
 DIRECTION_DELTA = {"E": (1, 0), "W": (-1, 0), "N": (0, -1), "S": (0, 1)}
 
 
-def generate_floor_graph(floor_num):
+def generate_floor_graph(floor_num, npc_key=None):
     fd         = _get_floor_def(floor_num)
     room_count = random.randint(fd["rooms_min"], fd["rooms_max"])
 
@@ -166,6 +166,30 @@ def generate_floor_graph(floor_num):
             "size":          room_size,
         }
 
+    # Insert NPC room if requested (floor 2+)
+    if npc_key and floor_num >= 2:
+        middle_combat = [p for p in order[1:-1]
+                         if room_graph[p]["type"] == "combat"]
+        min_rooms = 2 if npc_key == "edric" else 1
+        if len(middle_combat) >= min_rooms:
+            npc_pos = random.choice(middle_combat)
+            room_graph[npc_pos].update({
+                "type":         "npc",
+                "npc_key":      npc_key,
+                "npc_state":    "caged",
+                "npc_talked":   False,
+                "enemy_config": [],
+                "cleared":      True,
+                "size":         "small",
+            })
+            # Edric needs an Iron Warden to hold his key
+            if npc_key == "edric":
+                remaining  = [p for p in middle_combat if p != npc_pos]
+                warden_pos = random.choice(remaining)
+                room_graph[warden_pos]["enemy_config"].append(
+                    ("iron_warden", 1, fd["hp_mult"])
+                )
+
     return room_graph, order[0]
 
 
@@ -183,10 +207,13 @@ class LevelManager:
     def is_boss(self):   return self.room_type == "boss"
     @property
     def is_combat(self): return self.room_type == "combat"
+    @property
+    def is_npc(self):    return self.room_type == "npc"
 
     def description(self, room_num=None, total=None):
         if self.is_rest: return f"Floor {self.floor_num}  -  Rest Room"
         if self.is_boss: return f"Floor {self.floor_num}  -  BOSS!"
+        if self.is_npc:  return f"Floor {self.floor_num}  -  ???"
         if room_num and total:
             return f"Floor {self.floor_num}  -  Room {room_num}/{total}"
         return f"Floor {self.floor_num}"

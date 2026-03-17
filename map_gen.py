@@ -186,12 +186,22 @@ def generate_arena(doors=None, width=MAP_WIDTH, height=MAP_HEIGHT):
     return tilemap, trees, palette_map, spawn_positions, get_tile
 
 
-def generate_forest(doors=None, width=MAP_WIDTH, height=MAP_HEIGHT):
+def _clear_zone(tilemap, cx, cy, radius, w, h):
+    """Remove all tree tiles within radius tiles of (cx, cy)."""
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dx * dx + dy * dy <= radius * radius:
+                _set_tile(tilemap, cx + dx, cy + dy, GRASS, w, h)
+
+
+def generate_forest(doors=None, width=MAP_WIDTH, height=MAP_HEIGHT, clear_center=False):
     if doors is None:
         doors = {"E"}
     w, h = width, height
     tilemap = _make_base(w, h)
     random.choice(LAYOUTS)(tilemap, w, h)
+    if clear_center:
+        _clear_zone(tilemap, w // 2, h // 2, 4, w, h)
     my = h // 2
     mx = w  // 2
     spawn_positions = {}
