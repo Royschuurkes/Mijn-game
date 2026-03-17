@@ -1,14 +1,23 @@
 {
-  "weapon": "shield",
-  "highest_floor": 1,
+  "main_hand": "sword",
+  "off_hand": null,
+  "inventory_weapons": [
+    "sword"
+  ],
+  "inventory_shields": [],
+  "highest_floor": 0,
   "items": [
-    "health_potion"
+    "health_potion",
+    "fire_potion"
   ],
   "item_charges": {
-    "health_potion": 1
+    "health_potion": 0,
+    "fire_potion": 0
   },
+  "active_item_slot": 1,
   "active_effects": {
     "invis": 0,
     "fire_potion": 0
-  }
+  },
+  "exp": 97
 }

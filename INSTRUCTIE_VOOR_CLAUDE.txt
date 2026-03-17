@@ -16,33 +16,21 @@ WHAT WE ARE BUILDING — THE VISION
 
 A top-down 2D action RPG / roguelite in Python using Pygame.
 
-This is not a Binding of Isaac clone. The inspirations are:
-- Hades / Hades II — combat feel, speed, depth, and NPC relationships
-- Diablo — dark atmosphere, loot, character progression
-- Dark Souls / Skyrim — one character that can learn everything, no class restriction
-- Demon's Souls — hidden NPCs, meaningful choices, cryptic world-building
+The inspirations are:
+- The Binding of Isaac for world layout and random generated levels / floors
+- The Diablo and Hades games for the combat feel, speed, depth
+- Dark Souls / Skyrim for character creation and progression. One character can level any attribute and learn any skills or spells, no class restriction
+- Demon's Souls for the central hub that expands on the content the player has done inside the levels.
 
-The tone is dark, mysterious, and medieval. The world is afflicted by a curse. Most people have fled or succumbed. The player is one of the few who ventures into the danger.
+The tone is dark, mysterious, and medieval but at times can be very cozy. The world is afflicted by a curse. Most people have fled or succumbed. The player is one of the few who ventures into the danger.
 
 ───────────────────────────────────────────────
 STORY
 ───────────────────────────────────────────────
 
-The land is plagued by a curse that corrupts everything it touches — forests dying, animals going feral, and strangest of all: people getting lost. Knights, adventurers, and mercenaries have been sent in to find the source, but most never returned. Those who did come back confused and broken, rambling that the forest seems to constantly change — paths that weren't there before, rooms that shift, landmarks that disappear. This is the lore reason why the levels are procedurally generated: the curse itself warps the land.
+Dragged from the cursed woods and brought to a crumbling keep, a nameless stranger wakes with no past and no clear path forward. Beyond the gates, the land is coming undone: roads stray, memory fails, and those who return from the wilds are never wholly themselves. Yet death offers no escape, for each fall draws the stranger back to the keep once more. Somewhere in the shifting dark lies the reason why.
 
-The player is a squire. Not a chosen hero — just someone's apprentice. Your knight, a figure of great renown, took you under his wing from a young age. He is the closest thing to family you have. He left to investigate the curse. He said he would return in seven days. Today is day eight.
-
-So you go in after him.
-
-The motivation must feel earned, not forced. Before the game begins, the relationship between player and knight should be established clearly enough that the player believes this squire would walk into danger alone. He is not just your employer — he believed in you when no one else did.
-
-There is also a second, larger reason to go: the knight was the only one who had any real leads on the source of the curse. The curse is spreading, getting closer to the castle every day. Finding him may be the only way to stop it.
-
-The people who came back from the forest are not just confused — some of them say contradictory things. One claims to have seen the knight alive. Another says he watched him die. A third does not recognise his own name. The curse does not just warp the land — it warps memory, identity, perception. This makes the knight's fate genuinely uncertain and gives the player a darker question to sit with: is he still findable? Is he still himself?
-
-The hub is a castle — abandoned, crumbling, but yours. As you rescue survivors from the levels, the hub slowly comes to life. The kind of people you bring back — and the choices you make — shape what the hub becomes.
-
-Lore delivery: story is told in fragments, never in cutscenes. Notes, journals, environmental details, and NPC dialogue gradually reveal what happened. Players who pay attention understand more than players who don't. This is intentional.
+The lore is still being written. Refer to Lore Bible.txt for the story.
 
 ───────────────────────────────────────────────
 CHARACTER PROGRESSION — ONE CHARACTER, EVERYTHING IS LEARNABLE
@@ -58,7 +46,7 @@ This means two players can end up with very different builds based purely on who
 THE HUB AND NPC SYSTEM
 ═══════════════════════════════════════════════
 
-The hub starts empty. It fills up as the player rescues NPCs from levels.
+The hub starts alsmost empty. It fills up as the player rescues and meets various NPCs in the levels.
 
 NPCs are hidden in levels — not purely random, but not obvious either:
 - Each NPC has a fixed room layout (always the same design), but its location within the level is randomized
@@ -90,8 +78,8 @@ Hub → select a level → clear floors → boss → return to hub
 
 Levels:
 - Level 1: The Forest
-- Level 2: The Dark Forest (not yet developed)
-- Level 3: The Mountains (not yet developed)
+- Level 2: The Dark Forest (example, not yet developed)
+- Level 3: The Mountains (example, not yet developed)
 - More to follow
 
 Each level has multiple floors. Each floor has:
@@ -165,7 +153,7 @@ LONG-TERM DEVELOPMENT PLAN
 
 This is the roadmap we are working towards. We tackle these in order, one step at a time.
 
-PHASE 1 — Combat feel (CURRENT FOCUS)
+PHASE 1 — Combat feel (COMPLETE)
   Make The Forest feel genuinely good to play before adding anything else.
   - Hitstop, screenshake, squash/stretch
   - Flinch and knockback on enemies
@@ -175,12 +163,13 @@ PHASE 1 — Combat feel (CURRENT FOCUS)
   - Boss fight that feels like a tactical challenge
   - Overall feel: flashy, responsive, smooth, satisfying
 
-PHASE 2 — Rest room redesign + inventory foundation
+PHASE 2 — Rest room redesign + inventory foundation (COMPLETE)
   Replace the current item/fountain system with something more thematic and intentional.
 
   Rest room redesign:
   - The rest room becomes a quiet forest clearing
-  - The player can place a campfire and sleep to restore full HP
+  - Fountain and item pedestal removed (DONE)
+  - The player can place a campfire [F] and sleep [F] to restore full HP (DONE)
   - Sleeping gives a reduced EXP gain for the remainder of that floor (once EXP exists)
   - This creates a meaningful choice: heal now and lose EXP, or push on to the boss at risk
   - Small random chance: instead of an empty clearing, the player finds an abandoned campsite
@@ -197,20 +186,122 @@ PHASE 2 — Rest room redesign + inventory foundation
   Note: the EXP penalty for sleeping only becomes meaningful once the EXP system exists.
   Build the campfire/heal mechanic first, add the penalty later.
 
-PHASE 3 — EXP system (basic)
+PHASE 3 — EXP system (basic) (COMPLETE)
   Add experience points as a foundation for progression.
-  - Enemies give EXP on death, scaled by difficulty
+  - Enemies give EXP on death, scaled by difficulty (wolf 15, melee 12, ranged 18, boss 150)
+  - EXP scaled by hp_multiplier — harder enemies on deeper floors give more
   - Floor boss gives a large EXP bonus
-  - Sleeping at a campfire on that floor reduces EXP gain for the rest of the floor
-  - EXP is used later for character progression (Phase 5+); for now it just tracks and displays
+  - Sleeping gives "Dream-touched" debuff: 50% EXP penalty for the rest of that floor
+  - Dream-touched clears on new floor, death, or hub return
+  - HUD shows XP total (bottom-left) and Dream-touched indicator in muted purple
+  - EXP persists through death — long-term progression stat for Phase 7
 
-PHASE 4 — NPC system (first pass)
-  Add the first rescuable NPC to Level 1 as a full prototype.
-  - Design the NPC room (fixed layout, random location within the level)
-  - Implement the rescue/kill choice
-  - If rescued: NPC appears in hub with at least one function (selling consumables or teaching a skill)
-  - If killed: drops unique loot that cannot be obtained any other way; room never spawns again
-  - This proves the system works end-to-end before adding more NPCs
+PHASE 4 — NPC system (first pass) + gold + inventory redesign
+
+  ── GOLD SYSTEM ──────────────────────────────────────────────────────────────
+  Gold is a permanent currency — survives death, accumulates over time.
+
+  Sources:
+  - Humanoid enemies only (melee, ranged) — wolves do NOT drop gold
+  - Drop is not guaranteed: ~40% chance for melee (3–8g), ~50% for ranged (5–12g)
+  - Boss drops gold guaranteed: 30–60g
+  - Rare chests in combat rooms:
+      Wooden chest (more common): 15–30g
+      Iron chest (rare): 40–80g + possible consumable item
+  - Abandoned campsites: small chance of gold (5–20g) alongside consumables
+  - Gold shown in HUD alongside XP
+
+  ── THE IRON WARDEN (elite enemy) ─────────────────────────────────────────
+  A bandit captain who has claimed a stretch of the forest as his own.
+  Visually distinct from regular enemies: larger, different colour, more HP.
+  Spawns in one random combat room on the same floor as Edric (floor 2+).
+  Drops: "Rusted Key" on death — used to open Edric's cage.
+  The key sits in inventory. Walking up to the cage with the key triggers the
+  option to open it. The player may find the Warden before Edric — the key is
+  then already in their pocket when they reach the cage ("oh" moment).
+
+  ── EDRIC (first NPC — The Blacksmith) ────────────────────────────────────
+  Location: Level 1, floor 2 or higher. Fixed-layout NPC room, random position
+  within the floor graph.
+
+  Lore:
+  Edric was the fort's armorer under the Knight-Lord. When the order began to
+  fracture and the Curse crept closer, he stayed — he believed a good blade
+  was still worth something in a falling world. When the fort was finally
+  abandoned, he tried to leave with his tools. The Iron Warden's bandits caught
+  him in the forest.
+  He is not warm. He is not grateful. He is pragmatic and professional.
+
+  Dialogue — in the cage (first encounter):
+    Edric: "You're not one of theirs. I can see that much."
+           "There's a man. Calls himself the Iron Warden. He has the key to
+            this cage. Find him, and you find it."
+           "What you do with me after that is your own business."
+
+  Dialogue — if player already has the key:
+    Edric: "You already have it. Then open the cage or don't. I won't beg."
+
+  Dialogue — after opening the cage (choice prompt):
+    Edric: "There's a fort not far. Used to mean something. I'll find my way."
+    [Send him to the fort]   [Attack]
+
+  Dialogue — first time at hub:
+    Edric: "Still standing. Good enough. I'll set up here. Don't expect
+            conversation."
+
+  Ambient hub lines (rotate, evolve as player upgrades/buys):
+    "That sword of yours has seen better days."
+    "Gold's honest. Doesn't pretend to be anything else."
+    "The forest is getting stranger. I can feel it in the metal."
+    "Bring me the materials and I'll make it worth your while."
+
+  Hub function:
+  - Sells: wooden shield (gold cost)
+  - Upgrades weapons: +1 / +2 / +3 damage tiers, cost scales with tier
+  - Later (Phase 8+): crafting with enemy-dropped materials
+
+  Kill reward — Edric's Chain:
+  - Type: accessory (neck slot — new equipment slot)
+  - Effect: -15% physical damage received
+  - Description: "Worn by every smith in Edric's line. The metal has no name,
+    but it has not forgotten its purpose."
+  - Only obtainable by killing Edric; cannot be found any other way
+  - Introduces physical damage as the foundation of the future damage type
+    system (physical, fire, magic, poison etc. — to be expanded later)
+
+  ── CORVIN (alternative smith — Level 2) ───────────────────────────────────
+  A self-taught scavenger smith who learned by necessity. He doesn't ask where
+  things come from. He is always spawnable in Level 2 regardless of Edric's
+  fate — but his role in the hub depends on player choices:
+
+  - If Edric is alive: Corvin arrives at the hub as a traveling merchant,
+    sells consumables, does not touch the forge.
+  - If Edric is dead: Corvin takes over the forge. He can upgrade weapons
+    but only to +2 (not +3), charges ~40% more than Edric would have.
+    He cannot sell the wooden shield.
+
+  Ambient hub lines (when running the forge):
+    "I don't ask where things come from. You shouldn't ask either."
+    "Edric, was it? Heard of him. Good hands. Shame."
+    "It'll hold. Probably."
+
+  ── ACCESSORY SLOT ─────────────────────────────────────────────────────────
+  New equipment slot: accessory (neck/chain).
+  - save["accessory"] — currently equipped accessory key or None
+  - save["inventory_accessories"] — list of owned accessories
+  - Shown in the inventory/equipment screen
+  - Edric's Chain is the first and only accessory in Phase 4
+
+  ── INVENTORY REDESIGN ─────────────────────────────────────────────────────
+  Redesign Tab menu alongside NPC system since inventory gets real content here.
+  - Tab pauses the game and opens a full screen showing everything at once
+  - Left side: character silhouette with equipment slots
+    (main hand, off hand, accessory — armor slots added later)
+  - Right side: inventory list (consumables, accessories, future items)
+  - Selecting a slot shows compatible items; number keys to equip
+  - No drag-and-drop — keyboard/mouse navigation only
+  - Inspired by Dark Souls equipment screen: clean, proven, no clutter
+  - Current three-tab system is a placeholder until this is built
 
 PHASE 5 — Story foundation
   Give the game a reason to exist.
@@ -247,17 +338,10 @@ PHASE 9 — Polish and depth
 CURRENT PRIORITY
 ═══════════════════════════════════════════════
 
-PHASE 1 — Combat feel (in progress).
-
-The game should feel:
-- Flashy
-- Responsive
-- Smooth
-- Satisfying
-- Readable but not too easy
+PHASE 4 — NPC system (first pass) + inventory redesign.
 
 ───────────────────────────────────────────────
-WHAT HAS BEEN DONE IN PHASE 1
+WHAT HAS BEEN DONE IN PHASE 1 (complete)
 ───────────────────────────────────────────────
 
 Stamina:
@@ -285,7 +369,7 @@ Weapon & equipment system:
 - Separate main_hand (weapon) and off_hand (shield) equipment slots
 - Equip menu (Tab key) to swap weapons and equip/unequip shield
 - Save migration from old format to new equipment model
-- Player currently starts with sword only (dagger, axe, shield removed from starting inventory for Phase 1)
+- Player currently starts with sword only (dagger, axe, shield added back as unlockables later)
 
 Hitstop:
 - Hitstop on all melee hits (configurable per combo step in weapons.py)
@@ -305,7 +389,7 @@ Boss fight — The Forest Warrior:
   - Jump: boss leaps up, shadow grows at landing spot, high AoE damage, boss stunned after landing
 - Boss is unstoppable: zero flinch, zero knockback from player attacks (visual feedback only)
 - Attack rhythm tuned: melee = quick jab (short punish), charge/stamp/jump = heavy attacks (longer punish)
-- HP: 700, no phase 2 (removed for simplicity)
+- HP: 700, no phase 2 (intentional — bosses with phase 2 come in later levels)
 - Block lets 50% damage through (BLOCK_DAMAGE_THROUGH = 0.50)
 
 Enemy behavior:
@@ -323,12 +407,58 @@ Room generation:
 - Camera, doors, spawn positions all adapt dynamically to room dimensions
 
 ───────────────────────────────────────────────
-WHAT STILL NEEDS TO BE DONE IN PHASE 1
+WHAT HAS BEEN DONE IN PHASE 2 (complete)
 ───────────────────────────────────────────────
 
-- Overall difficulty tuning (ongoing — tweak numbers in boss_defs.py / enemy_defs.py)
-- General feel pass: does it feel flashy, responsive, satisfying?
-- Later: add dagger, axe, shield back as unlockable weapons (currently removed from starting inventory)
+Rest room:
+- Fountain and item pedestal removed
+- Player can place a campfire [F] at their position in rest rooms
+- Walking to the campfire and pressing [F] sleeps and restores full HP
+- "Rested." message fades in/out on screen after sleeping
+- Campfire state (placed, used) persists across room re-visits
+- Abandoned campsite: 30% chance the rest room has a pre-placed campfire (warm coals visual)
+  with 1-2 consumables (health potion / fire potion) scattered nearby
+- Ground items: glowing orbs, [F] pickup prompt on proximity, item name floats up on pickup
+
+Inventory:
+- Tab opens equipment screen with three tabs: Weapons, Shields, Items
+- Items tab shows all consumables with charges; [1/2/3] selects which item Q uses
+- Consumables (active items) persist through death; passive items are lost on death
+- Player starts with 1 health potion (3 charges) for testing
+
+═══════════════════════════════════════════════
+ART DIRECTION
+═══════════════════════════════════════════════
+
+Style: classic pixel art (2D top-down).
+
+Rationale:
+- Largest available ecosystem of asset packs (itch.io, LPC, Kenney)
+- Dark/medieval tone of the game is well-served by this genre
+- Consistent with the roguelite/RPG inspirations
+
+Asset packs:
+- Source: itch.io, LPC (Liberated Pixel Cup), Kenney.nl
+- Target tilesize: 48x48 (matches current TILE constant) or 16/32 (one constant to change)
+- Licence: look for CC0 or "free for commercial use"
+- When buying/downloading a pack: post it here so Claude can read the dimensions and write
+  the integration code
+
+Character equipment (paperdoll system):
+- Draw multiple layers at the same position with the same animation structure:
+    body → character → armor → weapon
+- Requires asset pack with separate layers per equipment slot (LPC-style)
+- Claude will write the layering/animation code once a pack is chosen
+
+When to switch to sprites:
+- Not yet. Current vector graphics are fine for development through Phase 3.
+- Transition at Phase 4 (NPC system) when characters need proper animations.
+- Migrate one system at a time: tiles first, then enemies, then player.
+
+NPC dialogue and hub:
+- Dialogue system will be data-driven (dicts/JSON per NPC, no hardcoding)
+- Typewriter text effect, choice options with key presses
+- Built as part of Phase 4 (NPC system first pass)
 
 ═══════════════════════════════════════════════
 TECHNICAL CONSTRAINTS

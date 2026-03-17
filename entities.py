@@ -814,7 +814,8 @@ class Enemy:
         self.damage_mult = damage_multiplier
         self.edef = get_enemy(enemy_type)
 
-        self.hp_max = ENEMY_BASE_HP * hp_multiplier * self.edef["hp_mult"]
+        self.hp_max    = ENEMY_BASE_HP * hp_multiplier * self.edef["hp_mult"]
+        self.exp_value = int(self.edef.get("exp", 10) * hp_multiplier)
         self.radius = self.edef["radius"]
         self.speed  = ENEMY_SPEED * self.edef["speed_mult"]
 
@@ -1220,6 +1221,7 @@ class Boss:
         self.hp          = self.hp_max
         self.radius      = self.bdef["radius"]
         self.damage_mult = damage_mult
+        self.exp_value   = int(self.bdef.get("exp", 150) * damage_mult)
 
         self.fx = 0.0; self.fy = 1.0
         self.scale_x = 1.0; self.scale_y = 1.0

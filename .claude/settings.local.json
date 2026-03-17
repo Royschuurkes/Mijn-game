@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && npm run typecheck 2>&1)",
+      "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && python -m mypy . 2>&1 | head -100)",
+      "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && python -m pyright . 2>&1 | head -100)",
+      "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && python -c \"import py_compile; import glob; files = glob.glob\\('*.py'\\); [py_compile.compile\\(f, doraise=True\\) for f in files]; print\\('All files OK'\\)\" 2>&1)",
+      "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && pip install mypy 2>&1 | tail -5)",
+      "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && python -m mypy . --ignore-missing-imports 2>&1)",
+      "Bash(cd \"C:\\\\Users\\\\roys\\\\Mijn game\" && python -c \"import py_compile; py_compile.compile\\('entities.py', doraise=True\\); py_compile.compile\\('constants.py', doraise=True\\); print\\('OK'\\)\")",
+      "WebSearch"
+    ]
+  }
+}

@@ -16,6 +16,7 @@ class ForestScene(BaseLevel):
     # ── Floor / room generation (forest-specific) ────────────────────────────
 
     def _generate_floor(self, first=True):
+        self.dream_touched = False
         self.floor_graph, self.start_pos = generate_floor_graph(self.level_mgr.floor_num)
         self.current_pos = self.start_pos
         for i, (pos, room) in enumerate(self.floor_graph.items()):
@@ -111,9 +112,82 @@ class ForestScene(BaseLevel):
             pygame.draw.circle(surface, (255, 200, 80), (sx, sy), 5)
 
     def _draw_rest_room_objects(self, surface, cam_x, cam_y):
-        self._draw_fountain(surface, cam_x, cam_y)
-        self._draw_item_pedestal(surface, cam_x, cam_y)
         self._draw_floor_portal(surface, cam_x, cam_y)
+        self._draw_rest_campfire(surface, cam_x, cam_y)
+
+    def _draw_rest_campfire(self, surface, cam_x, cam_y):
+        room = self.floor_graph[self.current_pos]
+        if room["type"] != "rest":
+            return
+
+        sp        = self.player
+        abandoned = room.get("abandoned_campsite", False)
+
+        # ── No campfire placed yet ────────────────────────────────────────────
+        if self.rest_campfire_pos is None:
+            sx = int(sp.x - cam_x)
+            sy = int(sp.y - cam_y)
+            t  = self.font_s.render("Place campfire  [F]", True, (220, 180, 80))
+            surface.blit(t, (sx - t.get_width() // 2, sy - 48))
+            self._draw_ground_items(surface, cam_x, cam_y)
+            return
+
+        cx, cy = self.rest_campfire_pos
+        sx = int(cx - cam_x)
+        sy = int(cy - cam_y)
+        puls = 0.5 + 0.5 * math.sin(self.tick * 0.12)
+
+        if abandoned:
+            # Warm coals — dimmer, more red/orange, no bright flame
+            r  = int(8 + puls * 3)
+            gs = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(gs, (180, int(50 + puls * 40), 0, int(60 + puls * 40)),
+                               (r + 2, r + 2), r)
+            surface.blit(gs, (sx - r - 2, sy - r - 2))
+            pygame.draw.circle(surface, (200, 80, 20), (sx, sy), 4)
+        else:
+            # Fresh campfire — bright, tall flame
+            r  = int(14 + puls * 6)
+            gs = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(gs, (255, int(120 + puls * 80), 0, int(90 + puls * 60)),
+                               (r + 2, r + 2), r)
+            surface.blit(gs, (sx - r - 2, sy - r - 2))
+            pygame.draw.circle(surface, (255, 200, 80), (sx, sy), 6)
+
+        # ── Prompt / status ───────────────────────────────────────────────────
+        if not self.rest_campfire_used:
+            dist = math.hypot(sp.x - cx, sp.y - cy)
+            if dist < 60:
+                t = self.font_s.render("Sleep  [F]", True, (220, 200, 100))
+                surface.blit(t, (sx - t.get_width() // 2, sy - 44))
+        else:
+            t = self.font_s.render("Rested", True, (120, 160, 100))
+            surface.blit(t, (sx - t.get_width() // 2, sy - 44))
+
+        self._draw_ground_items(surface, cam_x, cam_y)
+
+    def _draw_ground_items(self, surface, cam_x, cam_y):
+        from items import ITEMS
+        sp = self.player
+        for gi in self.ground_items:
+            if gi["picked_up"]:
+                continue
+            ix, iy = gi["pos"]
+            sx = int(ix - cam_x)
+            sy = int(iy - cam_y)
+            item  = ITEMS[gi["key"]]
+            puls  = 0.5 + 0.5 * math.sin(self.tick * 0.10)
+            r     = int(7 + puls * 2)
+            gs    = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+            kl    = item["color"]
+            pygame.draw.circle(gs, (*kl, int(80 + puls * 60)), (r + 2, r + 2), r)
+            surface.blit(gs, (sx - r - 2, sy - r - 2))
+            pygame.draw.circle(surface, kl, (sx, sy), 5)
+            # Pickup prompt when nearby
+            is_nearby = (self.nearby_ground_item is gi)
+            if is_nearby:
+                t = self.font_s.render(f"[F]  {item['name']}", True, kl)
+                surface.blit(t, (sx - t.get_width() // 2, sy - 28))
 
     def _draw_fountain(self, surface, cam_x, cam_y):
         if not self.fountain_pos:

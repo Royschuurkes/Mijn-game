@@ -10,7 +10,8 @@ ENEMIES = {
         "speed_mult":  1.1,
         "radius":      13,
         "aggro_range": 200,
-        "kb_mult":     0.4,       # knockback received multiplier
+        "kb_mult":     0.4,
+        "exp":         15,       # knockback received multiplier
         "color":       (160, 130, 60),  # base color (glow modifies it)
         "ai":          "wolf",
 
@@ -30,6 +31,7 @@ ENEMIES = {
         "radius":      14,
         "aggro_range": 260,
         "kb_mult":     1.0,
+        "exp":         12,
         "color":       None,       # uses C_MELEE constant
         "ai":          "melee",
 
@@ -47,6 +49,7 @@ ENEMIES = {
         "radius":      14,
         "aggro_range": 260,
         "kb_mult":     1.0,
+        "exp":         18,
         "color":       None,       # uses C_RANGED constant
         "ai":          "ranged",
 

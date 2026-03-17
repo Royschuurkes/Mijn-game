@@ -70,8 +70,10 @@ DEFAULT_SAVE = {
     "inventory_weapons":  ["sword"],
     "inventory_shields":  [],
     "highest_floor":      0,
-    "items":              [],
-    "item_charges":       {},
+    "items":              ["health_potion"],
+    "item_charges":       {"health_potion": 3},
+    "active_item_slot":   0,
+    "exp":                0,
     "active_effects": {
         "invis":       0,
         "fire_potion": 0,

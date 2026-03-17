@@ -29,6 +29,7 @@ class BaseLevel:
         self.player    = None
         self.cam_zoom        = 1.0
         self.cam_zoom_target = 1.0
+        self.dream_touched   = False
         self._generate_floor(first=True)
 
     # ═════════════════════════════════════════════════════════════════════════
@@ -115,6 +116,8 @@ class BaseLevel:
         self.campfire_positions = []
         self.equip_menu_active  = False
         self.equip_cursor       = 0
+        self.rest_message_timer  = 0
+        self.nearby_ground_item  = None
 
         if not room["cleared"]:
             for group in room["enemy_config"]:
@@ -129,17 +132,42 @@ class BaseLevel:
             self.floor_portal_open = (room["type"] == "boss")
 
         self.fountain_pos       = None
-        self.fountain_used      = room.get("fountain_used", False)
+        self.fountain_used      = False
         self.item_pedestal_pos  = None
         self.item_choice_active = False
         self.item_choices       = []
 
+        # Campfire and ground items — initialised once per rest room, persisted in room dict
+        if room["type"] == "rest" and "campfire_initialized" not in room:
+            room["campfire_initialized"] = True
+            room["campfire_pos"]         = None
+            room["campfire_used"]        = False
+            room["ground_items"]         = []
+            if random.random() < 0.30:
+                room["abandoned_campsite"] = True
+                cx = self.map_w // 2 * TILE + TILE // 2
+                cy = self.map_h // 2 * TILE + TILE // 2
+                room["campfire_pos"] = (cx, cy)
+                pool  = ["health_potion", "fire_potion"]
+                count = random.randint(1, 2)
+                for _ in range(count):
+                    angle = random.uniform(0, math.pi * 2)
+                    dist  = random.randint(60, 110)
+                    ix    = cx + math.cos(angle) * dist
+                    iy    = cy + math.sin(angle) * dist
+                    room["ground_items"].append(
+                        {"pos": (ix, iy), "key": random.choice(pool), "picked_up": False})
+            else:
+                room["abandoned_campsite"] = False
+
         if room["type"] == "rest":
-            fx = self.map_w // 2 * TILE + TILE // 2
-            fy = self.map_h // 2 * TILE + TILE // 2
-            self.fountain_pos = (fx, fy)
-            if not room.get("item_taken", False):
-                self.item_pedestal_pos = (fx - 100, fy)
+            self.rest_campfire_pos  = room.get("campfire_pos")
+            self.rest_campfire_used = room.get("campfire_used", False)
+            self.ground_items       = room.get("ground_items", [])
+        else:
+            self.rest_campfire_pos  = None
+            self.rest_campfire_used = False
+            self.ground_items       = []
 
     def _unpack_map_data(self, room):
         """Unpack map data from room dict. Override for different map formats."""
@@ -192,6 +220,8 @@ class BaseLevel:
                         return "quit"
                 if e.key == pygame.K_q:
                     self._use_active_item()
+                if e.key == pygame.K_f:
+                    self._handle_campfire_action()
                 if e.key == pygame.K_TAB:
                     self.equip_menu_active = not self.equip_menu_active
                     self.equip_cursor = 0
@@ -218,7 +248,8 @@ class BaseLevel:
         active_items = [k for k in items if ITEMS[k]["type"] == "active"]
         if not active_items:
             return
-        key  = active_items[0]
+        slot = self.save.get("active_item_slot", 0)
+        key  = active_items[min(slot, len(active_items) - 1)]
         item = ITEMS[key]
         c    = charges.get(key, item.get("charges", 1))
         if c <= 0:
@@ -256,14 +287,86 @@ class BaseLevel:
         self.item_pedestal_pos = None
         sound.play("level_up")
 
+    def _handle_campfire_action(self):
+        room = self.floor_graph[self.current_pos]
+        if room["type"] != "rest":
+            return
+        sp = self.player
+        if not sp.alive:
+            return
+        # Ground item pickup takes priority
+        if self.nearby_ground_item is not None:
+            self._pickup_ground_item(self.nearby_ground_item)
+            return
+        if self.rest_campfire_pos is None:
+            self.rest_campfire_pos = (sp.x, sp.y)
+            room["campfire_pos"]   = self.rest_campfire_pos
+            sound.play("level_up")
+        elif not self.rest_campfire_used:
+            dist = math.hypot(sp.x - self.rest_campfire_pos[0],
+                              sp.y - self.rest_campfire_pos[1])
+            if dist < 60:
+                heal = sp.hp_max - sp.hp
+                sp.hp = sp.hp_max
+                self.rest_campfire_used = True
+                room["campfire_used"]   = True
+                self.rest_message_timer = 180
+                self.dream_touched      = True
+                if heal > 0:
+                    self.damage_numbers.add(sp.x, sp.y - 20, f"+{int(heal)}",
+                                            color_override=True, override_color=(80, 255, 120))
+                sound.play("fountain")
+
+    def _award_exp(self, enemy):
+        from effects import DamageNumber
+        exp = getattr(enemy, "exp_value", 10)
+        if self.dream_touched:
+            exp = max(1, exp // 2)
+        self.save["exp"] = self.save.get("exp", 0) + exp
+        kl = (140, 120, 50) if self.dream_touched else (200, 170, 60)
+        self.damage_numbers.numbers.append(
+            DamageNumber(enemy.x, enemy.y - 42, f"+{exp} XP", kl, large=False))
+
+    def _pickup_ground_item(self, ground_item):
+        ground_item["picked_up"] = True
+        self.nearby_ground_item  = None
+        key    = ground_item["key"]
+        item   = ITEMS[key]
+        items   = self.save.setdefault("items", [])
+        charges = self.save.setdefault("item_charges", {})
+        if key not in items:
+            items.append(key)
+            charges[key] = item.get("charges", 1)
+        else:
+            charges[key] = charges.get(key, 0) + item.get("charges", 1)
+        sp = self.player
+        self.damage_numbers.add(sp.x, sp.y - 20, item["name"],
+                                color_override=True, override_color=item["color"])
+        sound.play("level_up")
+
+    def _update_nearby_ground_item(self):
+        sp   = self.player
+        best = None
+        best_dist = 55
+        for gi in self.ground_items:
+            if gi["picked_up"]:
+                continue
+            dist = math.hypot(sp.x - gi["pos"][0], sp.y - gi["pos"][1])
+            if dist < best_dist:
+                best_dist = dist
+                best      = gi
+        self.nearby_ground_item = best
+
     # ── Equipment menu ───────────────────────────────────────────────────────
 
     def _handle_equip_events(self, events):
         for e in events:
             if e.type != pygame.KEYDOWN:
                 continue
-            if e.key in (pygame.K_LEFT, pygame.K_RIGHT):
-                self.equip_cursor = 1 - self.equip_cursor
+            if e.key == pygame.K_LEFT:
+                self.equip_cursor = (self.equip_cursor - 1) % 3
+            elif e.key == pygame.K_RIGHT:
+                self.equip_cursor = (self.equip_cursor + 1) % 3
             if e.key in (pygame.K_1, pygame.K_KP1):
                 self._equip_slot(0)
             elif e.key in (pygame.K_2, pygame.K_KP2):
@@ -286,10 +389,16 @@ class BaseLevel:
             if idx < len(inv):
                 self.save["main_hand"] = inv[idx]
                 sound.play("level_up")
-        else:
+        elif self.equip_cursor == 1:
             inv = self.save.get("inventory_shields", [])
             if idx < len(inv):
                 self.save["off_hand"] = inv[idx]
+                sound.play("level_up")
+        else:
+            active_items = [k for k in self.save.get("items", [])
+                            if ITEMS[k]["type"] == "active"]
+            if idx < len(active_items):
+                self.save["active_item_slot"] = idx
                 sound.play("level_up")
 
     def _draw_equip_menu(self):
@@ -301,87 +410,121 @@ class BaseLevel:
         t = self.font_m.render("Equipment  [Tab to close]", True, (220, 200, 120))
         self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, 40))
 
-        tabs = ["Weapons  [\u2190\u2192]", "Shields  [\u2190\u2192]"]
+        tabs = ["Weapons  [\u2190\u2192]", "Shields  [\u2190\u2192]", "Items  [\u2190\u2192]"]
         for i, label in enumerate(tabs):
             kl = (255, 220, 100) if i == self.equip_cursor else (120, 110, 80)
             tt = self.font_s.render(label, True, kl)
-            x = SCREEN_W // 2 - 120 + i * 180
+            x  = SCREEN_W // 2 - 200 + i * 200
             self.screen.blit(tt, (x, 72))
             if i == self.equip_cursor:
                 pygame.draw.line(self.screen, kl, (x, 90), (x + tt.get_width(), 90), 2)
 
-        if self.equip_cursor == 0:
-            inv      = self.save.get("inventory_weapons", ["sword"])
-            equipped = self.save.get("main_hand", "sword")
-            items    = [(k, WEAPONS.get(k, {})) for k in inv]
-        else:
-            inv      = self.save.get("inventory_shields", [])
-            equipped = self.save.get("off_hand")
-            items    = [(k, SHIELDS.get(k, {})) for k in inv]
-
         card_w, card_h = 160, 180
-        total_w = len(items) * (card_w + 16) - 16
-        start_x = SCREEN_W // 2 - total_w // 2
 
-        for i, (key, data) in enumerate(items):
-            cx = start_x + i * (card_w + 16)
-            cy = SCREEN_H // 2 - card_h // 2 + 20
-            is_equipped = (key == equipped)
+        if self.equip_cursor == 2:
+            # ── Items tab ────────────────────────────────────────────────────
+            active_keys  = [k for k in self.save.get("items", [])
+                            if ITEMS[k]["type"] == "active"]
+            charges      = self.save.get("item_charges", {})
+            active_slot  = self.save.get("active_item_slot", 0)
+            total_w      = max(1, len(active_keys)) * (card_w + 16) - 16
+            start_x      = SCREEN_W // 2 - total_w // 2
 
-            bg_kl = (50, 50, 40) if not is_equipped else (60, 55, 35)
-            pygame.draw.rect(self.screen, bg_kl,
-                             (cx, cy, card_w, card_h), border_radius=8)
-            border_kl = (255, 220, 80) if is_equipped else data.get("color", (140, 140, 140))
-            pygame.draw.rect(self.screen, border_kl,
-                             (cx, cy, card_w, card_h), 2, border_radius=8)
-
-            if is_equipped:
-                et = self.font_s.render("EQUIPPED", True, (255, 220, 80))
-                self.screen.blit(et, (cx + card_w // 2 - et.get_width() // 2, cy + 8))
-
-            icon_kl = data.get("color", (180, 180, 180))
-            pygame.draw.circle(self.screen, icon_kl,
-                               (cx + card_w // 2, cy + 55), 22)
-
-            nt = self.font_m.render(data.get("name", key), True, (240, 230, 210))
-            self.screen.blit(nt, (cx + card_w // 2 - nt.get_width() // 2, cy + 85))
-
+            if not active_keys:
+                nt = self.font_m.render("No items", True, (100, 90, 80))
+                self.screen.blit(nt, (SCREEN_W // 2 - nt.get_width() // 2,
+                                      SCREEN_H // 2 - 10))
+            for i, key in enumerate(active_keys):
+                item      = ITEMS[key]
+                cx        = start_x + i * (card_w + 16)
+                cy        = SCREEN_H // 2 - card_h // 2 + 20
+                is_active = (i == active_slot)
+                bg_kl     = (55, 50, 35) if is_active else (45, 40, 30)
+                pygame.draw.rect(self.screen, bg_kl,
+                                 (cx, cy, card_w, card_h), border_radius=8)
+                border_kl = (255, 220, 80) if is_active else item["color"]
+                pygame.draw.rect(self.screen, border_kl,
+                                 (cx, cy, card_w, card_h), 2, border_radius=8)
+                if is_active:
+                    et = self.font_s.render("ACTIVE  [Q]", True, (255, 220, 80))
+                    self.screen.blit(et, (cx + card_w // 2 - et.get_width() // 2, cy + 8))
+                pygame.draw.circle(self.screen, item["color"],
+                                   (cx + card_w // 2, cy + 55), 22)
+                nt = self.font_m.render(item["name"], True, (240, 230, 210))
+                self.screen.blit(nt, (cx + card_w // 2 - nt.get_width() // 2, cy + 85))
+                c  = charges.get(key, item.get("charges", 1))
+                ct = self.font_s.render(f"Charges: {c}", True, (180, 170, 150))
+                self.screen.blit(ct, (cx + card_w // 2 - ct.get_width() // 2, cy + 112))
+                for j, line in enumerate(item["description"].split("\n")):
+                    dt = self.font_s.render(line, True, (140, 130, 110))
+                    self.screen.blit(dt, (cx + card_w // 2 - dt.get_width() // 2,
+                                          cy + 130 + j * 16))
+                ht = self.font_m.render(f"[{i+1}]", True, (200, 190, 140))
+                self.screen.blit(ht, (cx + card_w // 2 - ht.get_width() // 2,
+                                      cy + card_h - 26))
+            hint = self.font_s.render("[1-5] Select active item", True, (100, 95, 80))
+            self.screen.blit(hint, (SCREEN_W // 2 - hint.get_width() // 2,
+                                    SCREEN_H // 2 + card_h // 2 + 50))
+        else:
+            # ── Weapons / Shields tabs ────────────────────────────────────────
             if self.equip_cursor == 0:
-                w = get_weapon(key)
-                stats = [
-                    f"DMG: {w['damage']:.0f}",
-                    f"Reach: {w['reach']}",
-                    f"Combo: {combo_length(w)} hits",
-                    f"Stam: {w['stamina_cost']}",
-                ]
-                if w.get("can_block"):
-                    stats.append(f"Block: {w['block_stamina']:.0f} stam")
-                    stats.append(f"Parry: {w['parry_window']}f")
-                else:
-                    stats.append("No block")
+                inv      = self.save.get("inventory_weapons", ["sword"])
+                equipped = self.save.get("main_hand", "sword")
+                eq_items = [(k, WEAPONS.get(k, {})) for k in inv]
             else:
-                s = get_shield(key)
-                if s:
+                inv      = self.save.get("inventory_shields", [])
+                equipped = self.save.get("off_hand")
+                eq_items = [(k, SHIELDS.get(k, {})) for k in inv]
+
+            total_w = len(eq_items) * (card_w + 16) - 16
+            start_x = SCREEN_W // 2 - total_w // 2
+
+            for i, (key, data) in enumerate(eq_items):
+                cx          = start_x + i * (card_w + 16)
+                cy          = SCREEN_H // 2 - card_h // 2 + 20
+                is_equipped = (key == equipped)
+                bg_kl       = (55, 50, 35) if is_equipped else (45, 40, 30)
+                pygame.draw.rect(self.screen, bg_kl,
+                                 (cx, cy, card_w, card_h), border_radius=8)
+                border_kl = (255, 220, 80) if is_equipped else data.get("color", (140, 140, 140))
+                pygame.draw.rect(self.screen, border_kl,
+                                 (cx, cy, card_w, card_h), 2, border_radius=8)
+                if is_equipped:
+                    et = self.font_s.render("EQUIPPED", True, (255, 220, 80))
+                    self.screen.blit(et, (cx + card_w // 2 - et.get_width() // 2, cy + 8))
+                pygame.draw.circle(self.screen, data.get("color", (180, 180, 180)),
+                                   (cx + card_w // 2, cy + 55), 22)
+                nt = self.font_m.render(data.get("name", key), True, (240, 230, 210))
+                self.screen.blit(nt, (cx + card_w // 2 - nt.get_width() // 2, cy + 85))
+                if self.equip_cursor == 0:
+                    w     = get_weapon(key)
                     stats = [
-                        f"Block: {s['stamina_cost']:.0f} stam",
-                        f"Parry: {s['parry_window']}f window",
+                        f"DMG: {w['damage']:.0f}",
+                        f"Reach: {w['reach']}",
+                        f"Combo: {combo_length(w)} hits",
+                        f"Stam: {w['stamina_cost']}",
                     ]
+                    if w.get("can_block"):
+                        stats.append(f"Block: {w['block_stamina']:.0f} stam")
+                        stats.append(f"Parry: {w['parry_window']}f")
+                    else:
+                        stats.append("No block")
                 else:
-                    stats = []
+                    s     = get_shield(key)
+                    stats = ([f"Block: {s['stamina_cost']:.0f} stam",
+                               f"Parry: {s['parry_window']}f window"] if s else [])
+                for j, line in enumerate(stats):
+                    st = self.font_s.render(line, True, (160, 155, 140))
+                    self.screen.blit(st, (cx + card_w // 2 - st.get_width() // 2,
+                                          cy + 112 + j * 16))
+                ht = self.font_m.render(f"[{i+1}]", True, (200, 190, 140))
+                self.screen.blit(ht, (cx + card_w // 2 - ht.get_width() // 2,
+                                      cy + card_h - 26))
 
-            for j, line in enumerate(stats):
-                st = self.font_s.render(line, True, (160, 155, 140))
-                self.screen.blit(st, (cx + card_w // 2 - st.get_width() // 2,
-                                      cy + 112 + j * 16))
-
-            ht = self.font_m.render(f"[{i+1}]", True, (200, 190, 140))
-            self.screen.blit(ht, (cx + card_w // 2 - ht.get_width() // 2,
-                                  cy + card_h - 26))
-
-        if self.equip_cursor == 1:
-            ut = self.font_s.render("[0] Unequip shield", True, (140, 130, 110))
-            self.screen.blit(ut, (SCREEN_W // 2 - ut.get_width() // 2,
-                                  SCREEN_H // 2 + card_h // 2 + 50))
+            if self.equip_cursor == 1:
+                ut = self.font_s.render("[0] Unequip shield", True, (140, 130, 110))
+                self.screen.blit(ut, (SCREEN_W // 2 - ut.get_width() // 2,
+                                      SCREEN_H // 2 + card_h // 2 + 50))
 
     # ═════════════════════════════════════════════════════════════════════════
     #  UPDATE
@@ -420,6 +563,7 @@ class BaseLevel:
             sp.dodge_burst_pending = False
             self.particles.dodge_burst(sp.x, sp.y)
 
+        self._update_nearby_ground_item()
         self._update_dodge_trail()
         self._update_sword_hits()
         self._update_enemies(block)
@@ -435,6 +579,9 @@ class BaseLevel:
         if abs(self.cam_zoom - 1.0) < 0.001:
             self.cam_zoom        = 1.0
             self.cam_zoom_target = 1.0
+
+        if self.rest_message_timer > 0:
+            self.rest_message_timer -= 1
 
         self.particles.update()
         self.damage_numbers.update()
@@ -472,6 +619,7 @@ class BaseLevel:
                 self._camera_punch(1.05)
                 sound.play("sword_hit")
                 if dead:
+                    self._award_exp(target)
                     self._on_enemy_death(target)
             return
 
@@ -516,6 +664,7 @@ class BaseLevel:
 
             sound.play("sword_hit")
             if dead:
+                self._award_exp(target)
                 self._on_enemy_death(target)
 
     def _update_enemies(self, block):
@@ -552,6 +701,7 @@ class BaseLevel:
                 dead.append(e)
         for e in dead:
             if e in self.enemies:
+                self._award_exp(e)
                 self._on_enemy_death(e)
 
     def _update_boss(self, block):
@@ -643,6 +793,7 @@ class BaseLevel:
                                             block, is_arrow=False)
 
         if self.boss and self.boss.hp <= 0:
+            self._award_exp(self.boss)
             self._on_enemy_death(self.boss)
             self.boss = None
 
@@ -909,7 +1060,8 @@ class BaseLevel:
         charges = self.save.get("item_charges", {})
         active  = [k for k in items if ITEMS[k]["type"] == "active"]
         if active:
-            key  = active[0]
+            slot = self.save.get("active_item_slot", 0)
+            key  = active[min(slot, len(active) - 1)]
             item = ITEMS[key]
             c    = charges.get(key, item.get("charges", 1))
             kl   = item["color"]
@@ -965,6 +1117,20 @@ class BaseLevel:
             item = ITEMS[key]
             t    = self.font_s.render(f"\u25cf {item['name']}", True, item["color"])
             self.screen.blit(t, (SCREEN_W - t.get_width() - 10, 30 + i * 18))
+
+        if self.rest_message_timer > 0:
+            alpha = min(255, self.rest_message_timer * 8)
+            t = self.font_m.render("Rested.", True, (160, 220, 140))
+            t.set_alpha(alpha)
+            self.screen.blit(t, (SCREEN_W // 2 - t.get_width() // 2, SCREEN_H // 2 - 80))
+
+        exp_val = self.save.get("exp", 0)
+        t = self.font_s.render(f"XP  {exp_val:,}", True, (190, 160, 55))
+        self.screen.blit(t, (10, SCREEN_H - 42))
+
+        if self.dream_touched:
+            t = self.font_s.render("\u25c6 Dream-touched  \u2013 lessons do not hold", True, (120, 100, 155))
+            self.screen.blit(t, (10, SCREEN_H - 60))
 
     def _draw_minimap(self):
         room_size = 10; gap = 3; padding = 8
@@ -1067,8 +1233,13 @@ class BaseLevel:
         self.screen.blit(t2, (SCREEN_W // 2 - t2.get_width() // 2, SCREEN_H // 2 + 10))
         keys = pygame.key.get_pressed()
         if keys[pygame.K_r]:
-            self.save["items"]          = []
-            self.save["item_charges"]   = {}
+            # Consumables (active items) persist through death; passive items are lost
+            self.dream_touched = False
+            kept = [k for k in self.save.get("items", []) if ITEMS[k]["type"] == "active"]
+            self.save["items"]        = kept
+            self.save["item_charges"] = {k: v for k, v in
+                                         self.save.get("item_charges", {}).items()
+                                         if k in kept}
             self.save["active_effects"] = {"invis": 0, "fire_potion": 0}
             save_game(self.save)
             self.level_mgr = LevelManager()

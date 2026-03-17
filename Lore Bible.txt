@@ -1,0 +1,418 @@
+MY GAME - LORE BIBLE
+Version: 0.3
+Status: Working Canon Baseline
+Language: English
+
+============================================================
+1. CORE PREMISE
+============================================================
+
+Working title: My Game
+
+The game is a low-fantasy medieval action RPG with a structure inspired by
+hub-based death-loop design. The lore, tone, mythology, and worldbuilding are
+intended to be fully original.
+
+The player awakens in an old, decaying fort after being dragged in from the
+forest by two guards. The protagonist has no memory of who they are. The fort
+serves as the central hub. Each time the player dies, they awaken there again.
+
+Beyond the fort lie multiple hostile regions and bosses. A defining twist is
+that whenever the player re-enters a level, it is changed: routes shift,
+landmarks move, and the world no longer behaves as if it is fixed.
+
+This instability is caused by a spreading Curse, which is the central force of
+the setting and the main driver of the game's lore.
+
+
+============================================================
+2. SETTING AND TONE
+============================================================
+
+The world should feel grounded, harsh, and medieval, with restrained magic.
+Magic exists, as do magical creatures, but neither should be common or flashy.
+The supernatural is real, but it should feel rare, old, and weighty.
+
+A useful tonal comparison is The Witcher rather than high fantasy. The setting
+should feel lived-in, weathered, political, and human, while still allowing for
+deep mythic undercurrents.
+
+The story should preserve mystery. Not every truth needs to be explained in a
+fully literal way, and some elements should remain open to interpretation.
+However, the underlying foundations of the world should be internally strong and
+coherent.
+
+
+============================================================
+3. THE CURSE - CURRENT CORE CONCEPT
+============================================================
+
+The strongest current formulation is:
+
+    It begins with place, reveals itself through memory, and ultimately
+    consumes identity.
+
+The Curse is not merely rot, corruption, or madness. It is a failure in the
+bond between a thing and its proper meaning.
+
+Effects of the Curse include:
+- roads forgetting where they lead
+- boundaries losing certainty
+- landmarks drifting
+- memories becoming contradictory
+- names and identities losing their hold
+
+This makes the Curse ideal for the game structure. Regions shift, survivors
+return confused, and death itself becomes unstable for certain people touched by
+its deeper workings.
+
+
+============================================================
+4. CAUSE OF THE CURSE
+============================================================
+
+The current preferred interpretation is that the Curse did not begin as a single
+malicious act, nor as a straightforward divine punishment. It began as a long
+neglect of the bindings by which the world was once kept coherent.
+
+In this setting, oath, witness, memory, name, rite, and stewardship are not
+merely cultural ornaments. They are part of the world's actual order. They help
+bind place, lineage, duty, and truth into stable form.
+
+Over generations, these bindings thinned:
+- oaths were inherited but no longer fully borne
+- rites were preserved in form but not in understanding
+- roads were used without being truly known
+- titles remained while the burden beneath them weakened
+
+The Curse therefore emerges from vacancy rather than invasion: a long absence
+where meaning should have been.
+
+This should not be framed as a simple moral punishment for bad behavior. The
+idea is subtler: people came to rely on inherited structure without fully
+participating in the truth that once sustained it.
+
+
+============================================================
+5. RELATIONSHIP TO THE GODS
+============================================================
+
+The Curse should not be explained as "the gods did this."
+
+A stronger approach is that religion once understood parts of the law that kept
+the Curse at bay, but later generations retained the outer forms while losing
+the inner weight.
+
+This allows different in-world interpretations:
+- some call it divine judgment
+- some call it an ancient law failing
+- some call it a blight beyond human understanding
+
+None of these interpretations need to be fully confirmed.
+
+
+============================================================
+6. SUBTLE MODERN THEMATIC PARALLEL
+============================================================
+
+A quiet modern parallel exists beneath the setting, but it must never be stated
+directly or turned into a sermon.
+
+The underlying idea is that people become fragile when they stop engaging with
+reality directly and begin relying too heavily on borrowed certainty, inherited
+appearances, convenience, reputation, and second-hand truth.
+
+Translated into the world of the game, this means:
+- men trusting markers more than memory
+- repeating doctrine without understanding
+- clinging to titles without bearing their burden
+- valuing ceremony over witness
+- preserving forms after their living meaning has faded
+
+The tone should remain timeless rather than explicitly contemporary.
+
+
+============================================================
+7. THE FORT
+============================================================
+
+The fort is the central hub and one of the last places in the region still able
+to remain coherent against the Curse.
+
+Current reason:
+This is the great fort of the region where squires of a special knightly order
+are knighted after severe trials.
+
+The place is saturated with:
+- vow
+- memory
+- witness
+- ordeal
+- earned identity
+
+Because these things still have real weight there, the fort remains relatively
+stable and uncorrupted.
+
+The fort is not untouched because of a generic magical shield. It endures
+because it is one of the few places where meaning was made and bound with
+unusual force.
+
+
+============================================================
+8. THE ORDER AND THE OATH
+============================================================
+
+The knightly order tied to the fort is central to the region's old structure and
+to the player's eventual identity.
+
+The oath is sacred in meaning, martial in tone, and austere in style. It should
+feel ancient, hard, and unornamented.
+
+Oath text:
+
+    I take no name above the charge I bear.
+    I shall keep watch where others falter.
+    I shall keep true what is given into my care: road, boundary, memory,
+    and oath.
+    I shall not claim dominion where I am sworn only to keep.
+    I shall not turn from duty for fear, want, love, or pride.
+    If I fail, let my name be broken before my word.
+    So long as I stand, let this place remain true.
+
+
+============================================================
+9. WHY THE PLAYER RETURNS TO THE FORT
+============================================================
+
+A major current direction is that the player once took this oath in the fort,
+even though they no longer remember it at the start of the game.
+
+This creates the lore basis for the death loop. The protagonist does not simply
+respawn because of a gameplay abstraction; they return because the fort is a
+place that still recognizes and binds them.
+
+The player was first found in the forest and physically brought back into the
+fort by two guards. That matters as well. The fort becomes both:
+- the site of the old oath
+- the first place in the present where the player is witnessed, received, and
+  re-established
+
+Preferred interpretation:
+The protagonist has become metaphysically unresolved through contact with the
+deeper workings of the Curse. The world cannot fully settle them into death, so
+they are drawn back to the last place that still holds them in coherent form.
+
+
+============================================================
+10. THE PROTAGONIST AT THE START
+============================================================
+
+The protagonist is found in the forest, brought into the ruined fort, and
+awakened without memory.
+
+They can still speak coherently, which makes them unusual. Others who return
+from deeper contact with the Curse are often confused, shattered, or unable to
+give any clear account.
+
+This creates immediate suspicion and hope among the fort's inhabitants. Some
+view the stranger as a threat, others as a possible answer, and many simply do
+not know what to make of them.
+
+The protagonist is magically inclined in some fashion, but magic in the world
+should remain restrained rather than common or spectacular.
+
+
+============================================================
+11. THE KNIGHT-LORD
+============================================================
+
+The Knight-Lord is a key figure in the lore and should remain central to Level 1,
+but he is not the cause of the Curse.
+
+The Curse had long plagued the wider land from afar. Only when it drew closer to
+the fort did he begin to investigate it directly.
+
+He was a hard, proven, imposing man: not necessarily beloved, but formidable and
+effective. He held the lordship longer than any knight before him, and over time
+that endurance fed a fatal sense of personal claim.
+
+He did not openly reject the oath. On the contrary, he was proud of it, had
+suffered to earn it, and likely believed himself its truest living bearer.
+
+His tragedy is that fear changed the spirit of his rule by degrees. As the
+Curse neared, he became increasingly controlling, possessive, and fearful of
+losing authority, all while convincing himself that he was preserving the fort.
+
+
+============================================================
+12. HOW THE KNIGHT-LORD FAILED
+============================================================
+
+It is important that his failure was gradual, not reducible to one single act
+that caused everything.
+
+This matches the nature of the Curse itself: a thinning, an erosion, a slow
+replacement of living meaning with hardened form.
+
+The Knight-Lord began governing as though possession could protect what
+stewardship could not. He increasingly treated the keep as something that
+belonged to him by right of endurance.
+
+One especially strong established element:
+He would not alter the oath itself, but he began refusing knighthood to capable,
+independent squires who questioned his authority.
+
+He feared that strong-minded young men might weaken his control, divide the
+order, or prove unfit to face an unknown and growing horror. In practice, this
+meant he confused worthiness with obedience.
+
+As a result, the order remained outwardly intact while slowly hollowing from
+within. The best successors were withheld, and the living succession of the
+charge weakened.
+
+This made him a local embodiment of the age's deeper problem: preserving form
+while betraying truth.
+
+
+============================================================
+13. LEVEL 1 FUNCTION
+============================================================
+
+Level 1 should primarily revolve around the Knight-Lord and the player's first
+real understanding of the Curse.
+
+Thematically, the Knight-Lord should function less as the source of evil and
+more as the first human shape of the world's failure.
+
+He becomes compelling if he is tragic rather than cartoonishly villainous: a man
+trying to hold the line, but doing so in the wrong spirit, until fear, pride,
+and claim turn him into the very kind of fracture the Curse feeds upon.
+
+
+============================================================
+14. WHAT DOES NOT NEED TO BE OVERDEVELOPED YET
+============================================================
+
+The rejected squires do not need to become a major faction or subplot at this
+stage.
+
+It is enough that this pattern existed and may surface in fragments:
+- a bitter villager
+- a drunk
+- an old grievance
+- a forgotten roll
+- a small item description
+- a passing line of dialogue
+
+The focus should remain on:
+- the Knight-Lord
+- the Curse
+- the fort
+- the oath
+- the player's return loop
+
+
+============================================================
+15. RECOMMENDED LORE DELIVERY STYLE
+============================================================
+
+The game should communicate its truths through fragments rather than exposition
+dumps.
+
+Useful vehicles include:
+- item descriptions
+- inscriptions
+- liturgy
+- knighting records
+- hearsay
+- survivor testimony
+- architecture
+- offhand NPC dialogue
+- environmental contradiction
+
+The player should be able to grasp strong patterns without the setting ever
+flattening itself into a lecture.
+
+
+============================================================
+16. USEFUL WORKING PHRASES AND CANON LINES
+============================================================
+
+- It begins with place, reveals itself through memory, and ultimately consumes
+  identity.
+- The Curse did not begin as an invading force. It began as a vacancy.
+- Truth must be encountered, not merely received.
+- A thing only truly binds you if you have stood in it yourself.
+- The Knight-Lord did not cause the Curse. But when it neared the keep, he
+  answered it with fear disguised as authority.
+- The Curse drew near from without, but he made room for it within.
+- Objects that have been held with purpose across generations resist the Curse.
+  They remember what they were made for, even when everything else has forgotten.
+
+
+============================================================
+17. ESTABLISHED NPCS — CANON BASELINE
+============================================================
+
+EDRIC — The Blacksmith
+  Edric was the fort's armorer under the Knight-Lord. When the order began to
+  fracture and the Curse crept closer, he stayed working — he believed a good
+  blade was still worth something in a falling world. When the fort was finally
+  abandoned, he attempted to leave with his tools. He was ambushed and caged
+  by the Iron Warden's bandits in the forest.
+
+  He is gruff, pragmatic, and not given to gratitude. He owes the player work,
+  not warmth. He does not discuss the Curse at length, but his ambient lines
+  suggest he feels it in the metal — the way things corrode that should not,
+  the way good iron feels different than it did.
+
+  Edric's Chain:
+  A neck-chain passed through every smith in his family line. It predates the
+  Curse and has survived intact precisely because it has been held with
+  consistent purpose across generations. In a world where meaning is being
+  stripped from things, this object still knows what it is.
+  Item description: "Worn by every smith in Edric's line. The metal has no
+  name, but it has not forgotten its purpose."
+  Effect: -15% physical damage received. Introduces physical as the first
+  named damage type — others (fire, magic, poison) follow in later phases.
+
+THE IRON WARDEN
+  A bandit captain who has claimed a stretch of the forest as his own. His
+  title is self-appointed. He carries the key to Edric's cage as a symbol of
+  ownership. He is not cursed in any deep sense — just a man who fills a
+  vacancy of authority with violence. He is, in a small way, an echo of the
+  Knight-Lord: someone who confused possession with stewardship.
+
+CORVIN — The Scavenger Smith (Level 2)
+  A self-taught smith who learned by necessity in the margins of a falling
+  world. If Edric is alive, Corvin arrives at the hub as a traveling merchant.
+  If Edric is dead, Corvin takes over the forge — at higher prices and with
+  less skill. He does not ask where things come from. He is not malicious, only
+  opportunistic. His presence in the forge role signals a subtle darkening of
+  the hub's character.
+
+
+============================================================
+18. OPEN QUESTIONS FOR FUTURE SESSIONS
+============================================================
+
+- The deeper origin point or heart-location of the Curse
+- What exactly happened to the protagonist in the forest before the opening
+- Whether the protagonist was once part of the order in a more specific rank or
+  role
+- The precise form and state of the Knight-Lord when encountered as a boss
+- How later levels express different aspects of the Curse beyond Level 1
+- Which factions, creatures, and regional histories are tied to the spreading
+  failure of coherence
+- How sleep and dreams interact with the Curse (established mechanically via
+  Dream-touched debuff — lore depth to be added in Phase 5)
+
+
+============================================================
+19. CONTINUITY NOTE FOR LATER CHATS
+============================================================
+
+This document is intended to function as the current canon baseline for future
+worldbuilding discussions. If the project continues in another chat, this file
+should be re-uploaded or pasted in so that revisions can continue from the
+latest agreed version rather than from memory alone.

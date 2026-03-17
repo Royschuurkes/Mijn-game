@@ -11,6 +11,7 @@ BOSSES = {
         "hp":         700.0,
         "radius":     32,
         "speed":      1.6,
+        "exp":        150,
         "color_p1":   (55, 90, 45),
         "color_p2":   (110, 30, 20),
         "color_eye":  (200, 80, 255),
